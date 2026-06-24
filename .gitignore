@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# EverMCP
+*.log
+.evermcp/
+.uploads/
+
+# Bundled tools are NOT shipped via git. This repo only ships `examples/tools/`
+# as a reference. Developers who keep their own tools under `tools/` for local
+# debugging should add a per-machine ignore (or just rely on these rules).
+/tools/*
+!/tools/.gitkeep
+/tools/**/*
+!/tools/.gitkeep
+
+# ML model weights (large binary files — don't commit, load from local path)
+*.pth
+*.safetensors
+*.pt
+*.bin
+*.mdl
+*.msc
+*.mv
+
+# Test fixtures — small text samples OK; large binary video/audio not committed.
+# Tests that need real video files should download them via a fixture script.
+test-data/*.webm
+test-data/*.mp4
+test-data/*.mkv
+test-data/*.mov
+test-data/*.avi
+test-data/*.wav
+test-data/*.mp3
+test-data/*.flac
+test-data/*.ogg
+test-data/*.m4a
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

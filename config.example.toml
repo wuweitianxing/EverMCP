@@ -1,0 +1,17 @@
+# EverMCP Example Configuration
+# Copy to ~/.evermcp/config.toml and modify as needed.
+
+[general]
+log_level = "INFO"  # DEBUG, INFO, WARNING, ERROR
+log_file = "~/.evermcp/evermcp.log"
+
+[ffmpeg]
+binary = "ffmpeg"  # or absolute path, e.g. "/usr/local/bin/ffmpeg"
+# Default per-tool timeout in seconds for ffmpeg-based tools (when supported).
+# Tools that don't use ffmpeg may ignore this.
+default_timeout_s = 600
+
+[security]
+filesystem_allowlist = ["~/data", "~/Downloads"]
+network_allowlist = ["github.com", "pypi.org"]
+denied_paths = ["~/.ssh", "~/.aws", "~/.config/gh"]

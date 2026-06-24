@@ -1,0 +1,5 @@
+# EverMCP Test File
+This is a test file for verifying io_read_file works through Claude.
+It has multiple lines.
+Line 3.
+Line 4 with special chars: 你好世界 🎉
