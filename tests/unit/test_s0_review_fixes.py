@@ -1,7 +1,7 @@
 """Regression tests for the S0 code-review fixes.
 
 These tests pin the behavior added/changed by fixes #1, #2, #7, and #8 from
-``docs/s0-code-review-tmp.md``. If any of them fail, the corresponding
+``docs/reviews/s0-code-review.md``. If any of them fail, the corresponding
 fix has regressed and must be re-applied.
 
 Not exhaustive — they cover the surface area that was actually changed

@@ -259,3 +259,305 @@ class LocalFilesystemProvider:
             self._watcher.join(timeout=5)
             self._watcher = None
             logger.info("Stopped watching tools directory")
+
+
+# ---------------------------------------------------------------------------
+# InlineDeclarationProvider — form-declared capabilities (S1)
+# ---------------------------------------------------------------------------
+
+class InlineDeclarationProvider:
+    """Provides capabilities declared via the gateway UI form.
+
+    Reads from the ``InlineCapability`` SQLite table. Capabilities are
+    pure metadata — no script execution. Each row becomes a Capability
+    object whose ``call`` / ``read`` / ``get`` delegates to a small
+    stub implementation.
+
+    Design notes:
+    - ``kind == "tool"`` → produces a stub ``Capability`` whose ``call()``
+      raises ``NotImplementedError`` (form-declared tools are placeholders
+      until wired to real code in S2+).
+    - ``kind == "resource"`` → produces a stub whose ``read()`` returns
+      static content from ``schema_json``.
+    - ``kind == "prompt"`` → produces a stub whose ``get()`` returns
+      static prompt text from ``schema_json``.
+    - Enabled/disabled state is controlled by the ``enabled`` column;
+      disabled capabilities are invisible to the registry.
+    """
+
+    source = "inline"
+
+    def __init__(self, engine: Any = None) -> None:
+        from evermcp.storage import get_engine, init_db
+
+        # Resolve the engine once and ensure the schema exists. Previously each
+        # CRUD method re-ran init_db on every call, which is wasteful and can
+        # race with concurrent sessions on some SQLite drivers.
+        self._engine = engine if engine is not None else get_engine()
+        init_db(self._engine)
+        self._caps: dict[str, Capability] = {}
+        self._reload()
+
+    # ----- metadata helpers -----
+
+    def _reload(self) -> None:
+        """Reload capabilities from the database."""
+        from evermcp.storage import list_inline_capabilities
+
+        self._caps.clear()
+        rows = list_inline_capabilities(self._engine)
+        for row in rows:
+            cap = self._row_to_capability(row)
+            if cap.enabled:
+                self._caps[row.name] = cap
+        logger.info("InlineDeclarationProvider loaded %d capabilities", len(self._caps))
+
+    def _row_to_capability(self, row: Any) -> Capability:
+        """Convert an InlineCapability row to a Capability object."""
+        kind = CapabilityKind(row.kind)
+        name = row.name
+        description = row.description or ""
+
+        if kind == CapabilityKind.TOOL:
+            return _InlineToolCapability(name, description, row.schema_json)
+        elif kind == CapabilityKind.RESOURCE:
+            return _InlineResourceCapability(name, description, row.schema_json)
+        elif kind == CapabilityKind.PROMPT:
+            return _InlinePromptCapability(name, description, row.schema_json)
+        else:
+            raise ValueError(f"Unknown kind: {row.kind}")
+
+    # ----- CapabilityProvider contract -----
+
+    def list_capabilities(self) -> list[Capability]:
+        return list(self._caps.values())
+
+    def get(self, name: str) -> Capability | None:
+        return self._caps.get(name)
+
+    async def call(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> Any:
+        cap = self._caps.get(name)
+        if cap is None:
+            raise KeyError(name)
+        return await cap.call(args, ctx)
+
+    def health(self) -> bool:
+        return True
+
+    def add_capability(
+        self,
+        kind: str,
+        name: str,
+        description: str,
+        schema_json: str = "{}",
+        enabled: bool = True,
+    ) -> None:
+        """Add or update a capability in memory and the database."""
+        from datetime import UTC, datetime
+        from uuid import uuid4
+
+        from sqlalchemy import select
+
+        from evermcp.storage import InlineCapability, Session
+
+        with Session(self._engine) as session:
+            existing = session.exec(
+                select(InlineCapability).where(
+                    InlineCapability.name == name,
+                    InlineCapability.source == "inline",
+                )
+            ).first()
+
+            if existing:
+                existing.kind = kind
+                existing.description = description
+                existing.schema_json = schema_json
+                existing.enabled = enabled
+                existing.updated_at = datetime.now(UTC)
+            else:
+                row = InlineCapability(
+                    id=uuid4().hex,
+                    kind=kind,
+                    name=name,
+                    description=description,
+                    schema_json=schema_json,
+                    enabled=enabled,
+                )
+                session.add(row)
+
+            session.commit()
+
+        self._reload()
+
+    def delete_capability(self, name: str) -> bool:
+        """Delete a capability by name. Returns True if deleted."""
+        from sqlalchemy import select
+
+        from evermcp.storage import InlineCapability, Session
+
+        # Select-then-delete instead of relying on `result.rowcount`.
+        # `Session.exec` is oriented toward SELECT; on DELETE the underlying
+        # SQLite driver may report rowcount == -1, causing a successful
+        # delete to be reported as not-deleted.
+        with Session(self._engine) as session:
+            stmt = select(InlineCapability).where(
+                InlineCapability.name == name,
+                InlineCapability.source == "inline",
+            )
+            # Use .scalars() to get the model instance directly (session.exec
+            # returns a Row tuple for select(Model), which session.delete
+            # rejects as UnmappedInstanceError).
+            existing = session.scalars(stmt).first()
+            if existing is None:
+                return False
+            session.delete(existing)
+            session.commit()
+
+        self._reload()
+        return True
+
+    def update_capability_enabled(self, name: str, enabled: bool) -> bool:
+        """Toggle enabled state. Returns True if found and updated."""
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
+        from evermcp.storage import InlineCapability, Session
+
+        with Session(self._engine) as session:
+            stmt = select(InlineCapability).where(
+                InlineCapability.name == name,
+                InlineCapability.source == "inline",
+            )
+            # Use .scalars() to get model instances directly, not Row tuples
+            instance = session.scalars(stmt).first()
+
+            if instance is not None:
+                instance.enabled = enabled
+                instance.updated_at = datetime.now(UTC)
+                session.commit()
+                self._reload()
+                return True
+            return False
+
+
+# ---------------------------------------------------------------------------
+# Stub capability implementations for form-declared capabilities
+# ---------------------------------------------------------------------------
+
+def _parse_schema(schema_json: str) -> dict[str, Any]:
+    """Parse a schema_json string into a dict, returning {} on failure."""
+    import json
+
+    try:
+        return json.loads(schema_json)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+class _InlineToolCapability:
+    """Stub for a form-declared tool capability.
+
+    The tool is purely metadata — calling it raises NotImplementedError
+    until wired to real code (S2+).
+    """
+
+    kind = CapabilityKind.TOOL
+    source = "inline"
+
+    def __init__(self, name: str, description: str, schema_json: str) -> None:
+        self.name = name
+        self.description = description
+        self.enabled = True
+        self._schema = schema_json
+
+    def descriptor(self) -> dict[str, Any]:
+        schema = _parse_schema(self._schema)
+        return {
+            "name": self.name,
+            "description": self.description,
+            "inputSchema": schema.get("inputSchema", {}),
+        }
+
+    async def call(
+        self,
+        args: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> Any:
+        raise NotImplementedError(
+            f"Inline tool '{self.name}' is declared but not wired to implementation. "
+            "Use local tool files (tools/<category>/<name>.py) or S2 remote clients."
+        )
+
+
+class _InlineResourceCapability:
+    """Stub for a form-declared resource capability."""
+
+    kind = CapabilityKind.RESOURCE
+    source = "inline"
+
+    def __init__(self, name: str, description: str, schema_json: str) -> None:
+        self.name = name
+        self.description = description
+        self.enabled = True
+        self._schema = schema_json
+
+    def descriptor(self) -> dict[str, Any]:
+        schema = _parse_schema(self._schema)
+        # S0's ResourceFunc.descriptor() returns the resource address under the
+        # "uri" key; mcp_server._list_resources reads d["uri"] and
+        # registry.read_resource matches desc.get("uri") == uri. Form-declared
+        # resources store the address as "uriTemplate" in schema_json, so fall
+        # back to that. Keep "uriTemplate" as an optional extra field for
+        # callers (e.g. the web UI) that still inspect it.
+        return {
+            "name": self.name,
+            "description": self.description,
+            "uri": schema.get("uri") or schema.get("uriTemplate", ""),
+            "uriTemplate": schema.get("uriTemplate", ""),
+            "mimeType": schema.get("mimeType", "text/plain"),
+        }
+
+    async def call(
+        self,
+        args: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> Any:
+        raise NotImplementedError(
+            f"Inline resource '{self.name}' is declared but not wired."
+        )
+
+
+class _InlinePromptCapability:
+    """Stub for a form-declared prompt capability."""
+
+    kind = CapabilityKind.PROMPT
+    source = "inline"
+
+    def __init__(self, name: str, description: str, schema_json: str) -> None:
+        self.name = name
+        self.description = description
+        self.enabled = True
+        self._schema = schema_json
+
+    def descriptor(self) -> dict[str, Any]:
+        schema = _parse_schema(self._schema)
+        return {
+            "name": self.name,
+            "description": self.description,
+            "arguments": schema.get("arguments", []),
+        }
+
+    async def call(
+        self,
+        args: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> Any:
+        raise NotImplementedError(
+            f"Inline prompt '{self.name}' is declared but not wired."
+        )

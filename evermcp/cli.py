@@ -118,6 +118,11 @@ def main(ctx: click.Context, verbose: bool, config_file: str | None) -> None:
     default=False,
     help="Initialize the SQLite gateway database on startup (S0 default: off; S1 will turn on).",
 )
+@click.option(
+    "--ui/--no-ui",
+    default=False,
+    help="Enable the Web UI (S1). Default: off. Requires --http.",
+)
 @click.pass_context
 def serve(  # noqa: C901 — small command, complexity is acceptable
     ctx: click.Context,
@@ -127,6 +132,7 @@ def serve(  # noqa: C901 — small command, complexity is acceptable
     host: str | None,
     port: int | None,
     init_db: bool,
+    ui: bool,
 ) -> None:
     """Start the MCP server (stdio and/or Streamable HTTP transport)."""
     config = ctx.obj["config"]
@@ -136,6 +142,10 @@ def serve(  # noqa: C901 — small command, complexity is acceptable
         raise click.UsageError(
             "At least one of --stdio or --http must be enabled."
         )
+
+    # UI requires HTTP
+    if ui and not http:
+        raise click.UsageError("--ui requires --http")
 
     # Resolve host/port: CLI > config > default.
     bind_host = host or config.gateway.host
@@ -188,23 +198,49 @@ def serve(  # noqa: C901 — small command, complexity is acceptable
         )
         await http_server.run()
 
+    async def _ui() -> None:
+        """Start the FastAPI web UI server (loopback only, token-protected)."""
+        from evermcp.web.app import create_app
+        import uvicorn
+
+        web_app = create_app(coordinator, require_token=True)
+        config = uvicorn.Config(
+            web_app,
+            host="127.0.0.1",          # forced loopback — never follow --host
+            port=bind_port + 1,
+            log_level="info",
+        )
+        server = uvicorn.Server(config)
+        click.echo(
+            f"[evermcp] starting Web UI on http://127.0.0.1:{bind_port + 1}/ "
+            f"(loopback only, token-protected)",
+            err=True,
+        )
+        await server.serve()
+
     async def _run() -> None:
-        if stdio and http:
-            click.echo(
-                f"[evermcp] running stdio + Streamable HTTP on http://{bind_host}:{bind_port}/mcp",
-                err=True,
-            )
-            # If either task fails, gather propagates and we cancel the other.
-            await asyncio.gather(_stdio(), _http())
-        elif http:
-            click.echo(
-                f"[evermcp] running Streamable HTTP on http://{bind_host}:{bind_port}/mcp",
-                err=True,
-            )
-            await _http()
+        tasks = []
+
+        if stdio:
+            tasks.append(asyncio.create_task(_stdio(), name="stdio"))
+
+        if http:
+            tasks.append(asyncio.create_task(_http(), name="http"))
+
+        if ui:
+            tasks.append(asyncio.create_task(_ui(), name="ui"))
+
+        if not tasks:
+            raise RuntimeError("No tasks to run")
+
+        if len(tasks) == 1:
+            await tasks[0]
         else:
-            click.echo("[evermcp] running stdio transport", err=True)
-            await _stdio()
+            click.echo(
+                f"[evermcp] running {' + '.join(t.get_name() for t in tasks)}",
+                err=True,
+            )
+            await asyncio.gather(*tasks)
 
     try:
         asyncio.run(_run())

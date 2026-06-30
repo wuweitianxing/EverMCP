@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EverMCP Gateway — 能力治理平台</title>
+  <!-- Vue 3 ESM build from CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Element Plus from CDN -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/element-plus"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f5f7fa; }
+    #app { min-height: 100vh; }
+    .header { background: #fff; padding: 12px 24px; border-bottom: 1px solid #e4e7ed; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 18px; color: #303133; }
+    .header .status { font-size: 13px; color: #909399; }
+    .layout { display: flex; height: calc(100vh - 53px); }
+    .panel { border-right: 1px solid #e4e7ed; background: #fff; overflow-y: auto; }
+    .panel-left { width: 320px; min-width: 280px; }
+    .panel-center { flex: 1; }
+    .panel-right { width: 280px; min-width: 240px; border-right: none; border-left: 1px solid #e4e7ed; }
+    .panel-header { padding: 16px; border-bottom: 1px solid #ebeef5; font-weight: 600; font-size: 14px; color: #303133; }
+    .panel-body { padding: 16px; }
+    .tree-node { padding: 2px 0; }
+    .badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .badge-healthy { background: #67c23a; }
+    .badge-warning { background: #e6a23c; }
+    .badge-error { background: #f56c6c; }
+    .form-item { margin-bottom: 16px; }
+    .form-item label { display: block; font-size: 13px; color: #606266; margin-bottom: 4px; }
+    .form-item input, .form-item textarea, .form-item select { width: 100%; padding: 8px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 13px; }
+    .form-item textarea { min-height: 80px; resize: vertical; }
+    .test-result { background: #f5f7fa; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+    .search-box { padding: 12px 16px; border-bottom: 1px solid #ebeef5; }
+    .empty-state { text-align: center; padding: 40px 20px; color: #909399; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 8px; }
+    .tag-local { background: #ecf5ff; color: #409eff; }
+    .tag-inline { background: #f0f9ff; color: #67c23a; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <div class="header">
+      <h1>EverMCP Gateway <span style="font-size:12px;color:#909399;">v0.3.0</span></h1>
+      <div class="status">
+        <span v-if="loading">加载中...</span>
+        <span v-else>{{ capabilities.length }} 个能力 · {{ treeGroups.length }} 个来源</span>
+      </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="layout">
+      <!-- Left: Node Tree -->
+      <div class="panel panel-left">
+        <div class="panel-header">能力节点树</div>
+        <div class="search-box">
+          <el-input v-model="searchQuery" placeholder="搜索能力..." clearable size="small"></el-input>
+        </div>
+        <div class="panel-body">
+          <div v-if="loading" style="text-align:center;padding:20px;">
+            <el-spinner></el-spinner>
+          </div>
+          <div v-else-if="treeGroups.length === 0" class="empty-state">
+            暂无能力数据
+          </div>
+          <el-tree
+            v-else
+            ref="treeRef"
+            :data="filteredTree"
+            :props="treeProps"
+            node-key="name"
+            :expand-on-click-node="false"
+            :filter-node-method="filterNode"
+            @node-click="onNodeClick"
+            :default-expand-all="true"
+            :show-checkbox="false"
+          ></el-tree>
+        </div>
+      </div>
+
+      <!-- Center: Editor + Test Panel -->
+      <div class="panel panel-center">
+        <!-- Declaration Editor -->
+        <div v-if="!selectedCap" style="height:100%;display:flex;align-items:center;justify-content:center;">
+          <div class="empty-state">
+            <p style="font-size:16px;margin-bottom:8px;">选择一个能力进行编辑</p>
+            <p style="font-size:13px;">或在右侧表单中声明新能力</p>
+          </div>
+        </div>
+        <div v-else class="panel-body" style="height:100%;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 style="font-size:15px;">{{ selectedCap.name }}</h3>
+            <el-switch v-model="selectedCap.enabled" @change="toggleEnabled" :active-text="selectedCap.enabled ? '已启用' : '已禁用'"></el-switch>
+          </div>
+
+          <div class="form-item">
+            <label>描述</label>
+            <textarea v-model="selectedCap.description" @blur="updateCapability"></textarea>
+          </div>
+
+          <div class="form-item">
+            <label>参数 Schema (JSON)</label>
+            <textarea v-model="schemaText" @blur="updateSchema" style="min-height:120px;font-family:monospace;"></textarea>
+          </div>
+
+          <!-- Test Call Panel -->
+          <div style="margin-top:24px;border-top:1px solid #ebeef5;padding-top:16px;">
+            <h4 style="font-size:14px;margin-bottom:12px;">调用测试</h4>
+            <div class="form-item">
+              <label>测试参数 (JSON)</label>
+              <textarea v-model="testArgs" placeholder='{"param1": "value1"}'></textarea>
+            </div>
+            <el-button type="primary" size="small" @click="testCall" :loading="testing">测试调用</el-button>
+            <div v-if="testResult" style="margin-top:12px;">
+              <div class="test-result" :style="{color: testResult.success ? '#67c23a' : '#f56c6c'}">
+                <template v-if="testResult.success">
+                  ✓ 成功
+                  <pre style="margin-top:8px;color:#303133;">{{ JSON.stringify(testResult.result, null, 2) }}</pre>
+                </template>
+                <template v-else>
+                  ✗ 失败: {{ testResult.error }}
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: New Capability Form -->
+        <div style="border-top:1px solid #ebeef5;padding:16px;">
+          <h4 style="font-size:14px;margin-bottom:12px;">声明新能力</h4>
+          <div class="form-item">
+            <label>名称</label>
+            <input v-model="newCap.name" placeholder="my_tool">
+          </div>
+          <div class="form-item">
+            <label>类型</label>
+            <select v-model="newCap.kind">
+              <option value="tool">Tool</option>
+              <option value="resource">Resource</option>
+              <option value="prompt">Prompt</option>
+            </select>
+          </div>
+          <div class="form-item">
+            <label>描述</label>
+            <input v-model="newCap.description" placeholder="能力描述">
+          </div>
+          <el-button type="primary" size="small" @click="createCapability">创建</el-button>
+        </div>
+      </div>
+
+      <!-- Right: Management Panel -->
+      <div class="panel panel-right">
+        <div class="panel-header">管理</div>
+        <div class="panel-body">
+          <div v-for="group in treeGroups" :key="group.source" style="margin-bottom:16px;">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px;">
+              {{ group.label }}
+              <span class="tag" :class="'tag-' + (group.source === 'local' ? 'local' : 'inline')">
+                {{ group.children.reduce((sum, cat) => sum + countLeaves(cat), 0) }} 个能力
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, computed, watch } = Vue;
+
+    const app = createApp({
+      setup() {
+        const loading = ref(true);
+        const searchQuery = ref('');
+        const treeGroups = ref([]);
+        const capabilities = ref([]);
+        const selectedCap = ref(null);
+        const testing = ref(false);
+        const testResult = ref(null);
+        const testArgs = ref('{}');
+        const schemaText = ref('{}');
+        const newCap = ref({ name: '', kind: 'tool', description: '' });
+
+        const treeRef = ref(null);
+        const treeProps = {
+          label: (data) => data.label || data.category || data.name,
+          children: 'children',
+        };
+
+        const filteredTree = computed(() => {
+          return treeGroups.value; // el-tree handles filtering via filter-node-method
+        });
+
+        // Build standard request headers, attaching the bearer token when the
+        // host page has injected one via window.EVERMCP_TOKEN (S2 auth).
+        function apiHeaders() {
+          const headers = {'Content-Type': 'application/json'};
+          if (window.EVERMCP_TOKEN) {
+            headers['Authorization'] = 'Bearer ' + window.EVERMCP_TOKEN;
+          }
+          return headers;
+        }
+
+        // Fetch tree data
+        async function fetchTree() {
+          try {
+            loading.value = true;
+            const res = await fetch('/api/tree', { headers: apiHeaders() });
+            const data = await res.json();
+            treeGroups.value = data.groups || [];
+            // Flatten for capabilities list
+            capabilities.value = [];
+            for (const group of data.groups || []) {
+              for (const cat of group.children || []) {
+                for (const item of cat.children || []) {
+                  capabilities.value.push(item);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Failed to fetch tree:', e);
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        // Tree node filter — match against any label-bearing field so that
+        // source nodes (label), category nodes (category) and leaf nodes
+        // (name) all participate in the search.
+        function filterNode(value, data) {
+          if (!value) return true;
+          const text = data.name || data.category || data.label || '';
+          return text.toLowerCase().includes(String(value).toLowerCase());
+        }
+
+        // Watch search query — Element Plus requires an explicit
+        // treeRef.value.filter(val) call to actually apply filtering.
+        watch(searchQuery, (val) => {
+          if (treeRef.value) {
+            treeRef.value.filter(val);
+          }
+        });
+
+        // Node click handler
+        function onNodeClick(data) {
+          if (data.kind && data.name) {
+            selectedCap.value = { ...data };
+            schemaText.value = '{}';
+            testResult.value = null;
+          }
+        }
+
+        // Toggle enabled
+        async function toggleEnabled() {
+          if (!selectedCap.value) return;
+          try {
+            await fetch('/api/capabilities', {
+              method: 'PUT',
+              headers: apiHeaders(),
+              body: JSON.stringify({ name: selectedCap.value.name, enabled: selectedCap.value.enabled }),
+            });
+            await fetchTree();
+          } catch (e) {
+            console.error('Failed to toggle:', e);
+          }
+        }
+
+        // Update capability description (inline capabilities only)
+        async function updateCapability() {
+          if (!selectedCap.value) return;
+          try {
+            await fetch('/api/capabilities', {
+              method: 'PUT',
+              headers: apiHeaders(),
+              body: JSON.stringify({
+                name: selectedCap.value.name,
+                description: selectedCap.value.description,
+              }),
+            });
+          } catch (e) {
+            console.error('Failed to update capability:', e);
+          }
+        }
+
+        // Update capability schema_json (inline capabilities only)
+        async function updateSchema() {
+          if (!selectedCap.value) return;
+          try {
+            await fetch('/api/capabilities', {
+              method: 'PUT',
+              headers: apiHeaders(),
+              body: JSON.stringify({
+                name: selectedCap.value.name,
+                schema_json: schemaText.value,
+              }),
+            });
+          } catch (e) {
+            console.error('Failed to update schema:', e);
+          }
+        }
+
+        // Test call
+        async function testCall() {
+          if (!selectedCap.value) return;
+          testing.value = true;
+          testResult.value = null;
+          try {
+            const args = JSON.parse(testArgs.value || '{}');
+            const res = await fetch('/api/test', {
+              method: 'POST',
+              headers: apiHeaders(),
+              body: JSON.stringify({
+                name: selectedCap.value.name,
+                kind: selectedCap.value.kind,
+                args: args,
+              }),
+            });
+            testResult.value = await res.json();
+          } catch (e) {
+            testResult.value = { success: false, error: e.message };
+          } finally {
+            testing.value = false;
+          }
+        }
+
+        // Create capability
+        async function createCapability() {
+          if (!newCap.value.name) return;
+          try {
+            await fetch('/api/capabilities', {
+              method: 'POST',
+              headers: apiHeaders(),
+              body: JSON.stringify(newCap.value),
+            });
+            newCap.value = { name: '', kind: 'tool', description: '' };
+            await fetchTree();
+          } catch (e) {
+            console.error('Failed to create:', e);
+          }
+        }
+
+        // Count leaves in a tree node
+        function countLeaves(node) {
+          if (node.children && Array.isArray(node.children)) {
+            return node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+          }
+          return 1;
+        }
+
+        // Init
+        fetchTree();
+
+        return {
+          loading, searchQuery, treeGroups, capabilities,
+          treeProps, treeRef, filteredTree, selectedCap,
+          testing, testResult, testArgs, schemaText,
+          newCap,
+          filterNode, onNodeClick, toggleEnabled,
+          updateCapability, updateSchema, testCall,
+          createCapability, countLeaves,
+        };
+      },
+    });
+
+    app.use(ElementPlus);
+    app.mount('#app');
+  </script>
+</body>
+</html>

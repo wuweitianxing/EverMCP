@@ -1,9 +1,9 @@
 # EverMCP v3 网关化计划 (Gateway + Capability Governance UI)
 
-> Status: REVIEW (待审核)
-> 日期: 2026-06-30 (初稿) / 2026-06-30 (修订:落实复用决策 + 梯度规划)
+> Status: 进行中 — S0/S1 已完成并经审查修复,S2 待开工
+> 日期: 2026-06-30 (初稿) / 2026-06-30 (修订:落实复用决策 + 梯度规划) / 2026-07-01 (进度更新:S0+S1 落地)
 > 上游设计: `DESIGN.md` (v0.2.0)、`SECURITY.md` (v0.2.0)
-> 配套文档: `competitive-analysis.md`(竞品调研)、`architecture-reflection.md`(架构反思)
+> 配套文档: `competitive-analysis.md`(竞品调研)、`architecture-reflection.md`(架构反思)、`reviews/`(阶段审查与实施总结归档)
 > 模式: Builder / 自定节奏
 
 ---
@@ -27,6 +27,17 @@
 - 砍除:gRPC worker 层、单能力发布 SDK(初期)、持久化远程能力、BM25 检索(S3 可选)、**Monaco 脚本编辑器 + 沙箱**(本地 IDE + 文件热加载已够)。
 
 工程顺序按 **骨架(S0) → 核心(S1) → 有用(S2) → 无关紧要(S3)** 梯度(见 §6),每阶段可独立验证、向后兼容 v0.2.0 的 `@tool` 契约。
+
+**进度总览**(2026-07-01):
+
+| Stage | 状态 | 规模(估/实) | 测试 | 说明 |
+|---|---|---|---|---|
+| S0 骨架 | ✅ 完成 | ~630 / ~890行 | 238 passed | 能力泛化 + 双 transport + SQLite 基座;经审查修复 11 项 |
+| S1 核心 | ✅ 完成 | ~1010 / ~960行 | 255 passed | 节点树 UI + 表单声明 + token 鉴权;经审查修复 11 项 |
+| S2 有用 | ⏳ 待开工 | ~860行 | — | 整 server 反向注册 + 认证 + 日志 |
+| S3 无关紧要 | ⬜ 暂缓 | ~630行 | — | 打磨(按需) |
+
+阶段审查与实施总结归档于 `docs/reviews/`。下一里程碑:**S2**。
 
 ---
 
@@ -348,6 +359,8 @@ class CallLog(SQLModel, table=True):           # S2 引入
 
 ### 6.1 复杂度与规模总表
 
+> 状态图例:✅ 已完成(S0/S1) / ⏳ 待开工(S2) / ⬜ 暂缓(S3)。各任务行状态见对应 Stage 标题与 §0 进度总览。
+
 | 任务 | 模块 | 复杂度 | 规模(行) | 前置依赖 | 梯度 |
 |---|---|---|---|---|---|
 | Capability 模型泛化(`@resource`/`@prompt`) | `core/capability.py` | M | ~120 | — | S0 骨架 |
@@ -377,14 +390,14 @@ class CallLog(SQLModel, table=True):           # S2 引入
 | SafeURL DNS 复检(闭合 SSRF) | `security/safeurl.py` | S | ~30 | — | S3 无关紧要 |
 | 文档 v3(DESIGN/deploy/connect) | `docs/` | M | — | — | S3 无关紧要 |
 
-**规模汇总**: S0 骨架 ~630行 / S1 核心 ~1010行 / S2 有用 ~860行 / S3 无关紧要 ~630行(可选)。
+**规模汇总**: S0 骨架 ~630行(实~890)✅ / S1 核心 ~1010行(实~960)✅ / S2 有用 ~860行 ⏳ / S3 无关紧要 ~630行(可选)⬜。
 
 ### 6.2 梯度原则与重排理由
 
-- **S0 骨架**:让网关「立起来」的最小闭环。能力模型泛化 + 双 transport + 持久化基座。完成后:本地工具经 stdio/HTTP 暴露,支持 Tool/Resource/Prompt 三类。无 UI、无远程。
-- **S1 核心**:差异化卖点,尽早验证价值。能力节点树 UI + 表单声明。完成后:浏览器可视化+声明能力。**无远程客户端也能体现核心价值**(本地工具 + 内联声明已足够展示节点树)。
-- **S2 有用**:扩展能力来源与可观测性。整 server 反向注册 + 认证 + 治理持久化 + 日志。完成后:远程客户端接入,多源节点树完整。
-- **S3 无关紧要**:打磨与可选增强。BM25、版本/审核、SSRF 强化。按需做,非阻塞。
+- **S0 骨架** ✅:让网关「立起来」的最小闭环。能力模型泛化 + 双 transport + 持久化基座。完成后:本地工具经 stdio/HTTP 暴露,支持 Tool/Resource/Prompt 三类。无 UI、无远程。
+- **S1 核心** ✅:差异化卖点,尽早验证价值。能力节点树 UI + 表单声明。完成后:浏览器可视化+声明能力。**无远程客户端也能体现核心价值**(本地工具 + 内联声明已足够展示节点树)。
+- **S2 有用** ⏳:扩展能力来源与可观测性。整 server 反向注册 + 认证 + 治理持久化 + 日志。完成后:远程客户端接入,多源节点树完整。
+- **S3 无关紧要** ⬜:打磨与可选增强。BM25、版本/审核、SSRF 强化。按需做,非阻塞。
 
 **关键重排(相对原功能 Phase 顺序)**:
 - **UI(核心)从原 Phase 3 前移到 S1** — UI 是差异化卖点,应尽早做出验证;本地工具 + 表单声明已能体现节点树价值,不必等反向注册。
@@ -394,20 +407,20 @@ class CallLog(SQLModel, table=True):           # S2 引入
 
 ---
 
-### S0 — 骨架:能力泛化 + 双 transport + 持久化基座
+### S0 — 骨架:能力泛化 + 双 transport + 持久化基座 ✅(已完成 2026-07-01)
 **目标**:不破坏 v0.2.0 行为,泛化能力模型到三类,上线 HTTP transport(复用官方 SDK),搭 SQLite 基座。完成后网关可被多 transport 客户端访问。
 
 **任务清单**:
-- [ ] `evermcp/core/capability.py`:`CapabilityKind` 枚举、`Capability` Protocol、`@resource`/`@prompt` 装饰器;`ToolFunc` 加 `kind=TOOL`。 **[M]**
-- [ ] `evermcp/core/provider.py`:`CapabilityProvider` Protocol + `LocalFilesystemProvider`(迁入现有 `registry.py`,**只扫 Tool**)。 **[S]**
-- [ ] `evermcp/core/registry.py` → `CapabilityRegistry`:按 `kind` 分桶聚合多 Provider;`ToolRegistry` 保留作别名。 **[M]**
-- [ ] `evermcp/protocol/coordinator.py`:持有 `list[CapabilityProvider]`,暴露 `list_tools/resources/prompts` + `read_resource/get_prompt`;`call_tool` 按 name 前缀路由。 **[M]**
-- [ ] `evermcp/protocol/mcp_server.py`:增加 `resources/*`、`prompts/*` handler。 **[M]**
-- [ ] `evermcp/protocol/http_server.py`:官方 `streamable_http`,与 stdio 共用 handler。 **[S]**
-- [ ] `evermcp/cli.py`:`serve [--stdio] [--http --host H --port P]`。 **[S]**
-- [ ] `evermcp/storage.py`:SQLModel + SQLite,建 `InlineCapability` 表。 **[M]**
-- [ ] `evermcp/security/config.py`:`[gateway]` 段(host/port/http_require_key)。 **[S]**
-- [ ] 测试:`tests/unit/test_capability.py`、`tests/integration/test_http_server.py`;回归 `test_hello.py`、`test_read_file.py` 全绿。 **[M]**
+- [x] `evermcp/core/capability.py`:`CapabilityKind` 枚举、`Capability` Protocol、`@resource`/`@prompt` 装饰器;`ToolFunc` 加 `kind=TOOL`。 **[M]**
+- [x] `evermcp/core/provider.py`:`CapabilityProvider` Protocol + `LocalFilesystemProvider`(迁入现有 `registry.py`,**只扫 Tool**)。 **[S]**
+- [x] `evermcp/core/registry.py` → `CapabilityRegistry`:按 `kind` 分桶聚合多 Provider;`ToolRegistry` 保留作别名。 **[M]**
+- [x] `evermcp/protocol/coordinator.py`:持有 `list[CapabilityProvider]`,暴露 `list_tools/resources/prompts` + `read_resource/get_prompt`;`call_tool` 按 name 前缀路由。 **[M]**
+- [x] `evermcp/protocol/mcp_server.py`:增加 `resources/*`、`prompts/*` handler。 **[M]**
+- [x] `evermcp/protocol/http_server.py`:官方 `streamable_http`,与 stdio 共用 handler。 **[S]**
+- [x] `evermcp/cli.py`:`serve [--stdio] [--http --host H --port P]`。 **[S]**
+- [x] `evermcp/storage.py`:SQLModel + SQLite,建 `InlineCapability` 表。 **[M]**
+- [x] `evermcp/security/config.py`:`[gateway]` 段(host/port/http_require_key)。 **[S]**
+- [x] 测试:`tests/unit/test_capability.py`、`tests/integration/test_http_server.py`;回归 `test_hello.py`、`test_read_file.py` 全绿。 **[M]**
 
 **验收**:
 - `evermcp serve --tools-dir tools` 行为与 v0.2.0 完全一致(stdio),旧调用名 `io.read_file` 仍有效。
@@ -415,21 +428,21 @@ class CallLog(SQLModel, table=True):           # S2 引入
 - `examples/tools/` 加一个 `@resource`/`@prompt` 示例(手动注册),MCP 能列出。
 
 **新增依赖**:`sqlmodel>=0.0.16`。
-**总规模**: ~630行 / **总预估**: M(约 2 周)
+**总规模**: ~630行(实~890行) / **总预估**: M(约 2 周) / **实际**: ✅ 已完成(2026-07-01,经审查修复 11 项)
 
 ---
 
-### S1 — 核心:能力节点树 UI + 表单声明
+### S1 — 核心:能力节点树 UI + 表单声明 ✅(已完成 2026-07-01)
 **目标**:浏览器可视化网关所有能力,表单声明 Tool/Resource/Prompt 即时发布。**这是 EverMCP 核心独创卖点**(以能力为节点的注册中心式可视化,无竞品)。无远程客户端时本地工具+内联声明已能验证卖点。
 
 **任务清单**:
-- [ ] `evermcp/core/provider.py:InlineDeclarationProvider`:读 `InlineCapability` 表构建能力对象(纯元数据,无代码)。 **[S]**
-- [ ] `evermcp/web/app.py`:FastAPI app + 本地 token 鉴权 + 静态托管前端。 **[M]**
-- [ ] `evermcp/web/rest.py`:`GET /api/tree`、`POST/PUT/DELETE /api/capabilities`、`POST /api/test`、`GET /api/clients`、`POST/DELETE /api/keys`。 **[L]**
-- [ ] 前端 `evermcp/web/static/`(Vue3 ESM + Element Plus,CDN):节点树(左)+ 表单声明(中)+ 调用测试(中下)+ 管理(右)。 **[XL]**
-- [ ] `evermcp/cli.py`:`serve --ui` 挂载 Web app(默认 `127.0.0.1`)。 **[S]**
-- [ ] 启停/可见性:`InlineCapability.enabled` 控制是否出现在 MCP list;本地/远程启停只内存标记。 **[M]**
-- [ ] 测试:`tests/integration/test_web_api.py`;前端冒烟 `tests/e2e/test_ui_smoke.py`(httpx 调 REST)。 **[M]**
+- [x] `evermcp/core/provider.py:InlineDeclarationProvider`:读 `InlineCapability` 表构建能力对象(纯元数据,无代码)。 **[S]**
+- [x] `evermcp/web/app.py`:FastAPI app + 本地 token 鉴权 + 静态托管前端。 **[M]**
+- [x] `evermcp/web/rest.py`:`GET /api/tree`、`POST/PUT/DELETE /api/capabilities`、`POST /api/test`(`/api/clients`、`/api/keys` 移至 S2)。 **[L]**
+- [x] 前端 `evermcp/web/static/`(Vue3 ESM + Element Plus,CDN):节点树(左)+ 表单声明(中)+ 调用测试(中下)+ 管理(右)。 **[XL]**
+- [x] `evermcp/cli.py`:`serve --ui` 挂载 Web app(默认 `127.0.0.1`)。 **[S]**
+- [x] 启停/可见性:`InlineCapability.enabled` 控制是否出现在 MCP list;本地/远程启停只内存标记。 **[M]**
+- [x] 测试:`tests/integration/test_web_api.py`(17 用例);e2e 冒烟以 `serve --http --ui` 端到端手动验证替代。 **[M]**
 
 **验收**:
 - 浏览器打开 `http://127.0.0.1:8787/`,本地工具 + 内联声明两类同树展示。
@@ -438,11 +451,11 @@ class CallLog(SQLModel, table=True):           # S2 引入
 - 调用测试面板能调任意能力并显示结果/错误码。
 
 **新增依赖**:`fastapi`、`uvicorn[standard]`(S1 引入,供 S2 复用)。
-**总规模**: ~1010行 / **总预估**: L(约 3 周,前端是瓶颈)
+**总规模**: ~1010行(实~960行) / **总预估**: L(约 3 周,前端是瓶颈) / **实际**: ✅ 已完成(2026-07-01,经审查修复 11 项)
 
 ---
 
-### S2 — 有用:整 server 反向注册 + 认证 + 治理 + 日志
+### S2 — 有用:整 server 反向注册 + 认证 + 治理 + 日志 ⏳(待开工 — 下一里程碑)
 **目标**:远程客户端把现有 stdio MCP server 经出站 WS 反向接入,Agent 经网关调用;补持久化治理与调用日志。**不做单能力发布 SDK**。
 
 **任务清单**:
@@ -467,7 +480,7 @@ class CallLog(SQLModel, table=True):           # S2 引入
 
 ---
 
-### S3 — 无关紧要:打磨(按需,非阻塞)
+### S3 — 无关紧要:打磨(按需,非阻塞)⬜(暂缓)
 **目标**:可选增强与生产打磨。**仅在 S0-S2 完成且验证有需求时做**;各项相互独立,可挑做。不含脚本沙箱(已砍)。
 
 **任务清单**(各自独立):

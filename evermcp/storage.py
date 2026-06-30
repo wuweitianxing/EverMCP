@@ -51,6 +51,7 @@ class InlineCapability(SQLModel, table=True):
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True)
     kind: str
     name: str
+    source: str = "inline"
     description: str = ""
     schema_json: str = "{}"
     enabled: bool = True
