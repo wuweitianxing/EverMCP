@@ -12,6 +12,8 @@ from pathlib import Path
 
 import click
 
+from evermcp.security.config import Config
+
 
 class _ISOFormatter(logging.Formatter):
     """JSON-like formatter for stderr: ISO 8601 timestamp."""
@@ -74,9 +76,6 @@ def _setup_logging(config_log_level: str, config_log_file: Path, verbose: bool) 
 @click.pass_context
 def main(ctx: click.Context, verbose: bool, config_file: str | None) -> None:
     """EverMCP — Cross-device tool orchestration for AI Agents."""
-    # Load config early so log_level is available
-    from evermcp.security.config import Config
-
     config = Config.load(config_file=config_file)
     ctx.ensure_object(dict)
     ctx.obj["config"] = config
@@ -93,10 +92,54 @@ def main(ctx: click.Context, verbose: bool, config_file: str | None) -> None:
         "Overrides $EVERMCP_TOOLS_DIR. Default: <repo>/tools (empty in this repo)."
     ),
 )
+@click.option(
+    "--stdio/--no-stdio",
+    default=True,
+    help="Run the stdio MCP transport (default: on). Disable with --no-stdio.",
+)
+@click.option(
+    "--http/--no-http",
+    default=False,
+    help="Run the Streamable HTTP transport (default: off).",
+)
+@click.option(
+    "--host",
+    default=None,
+    help="HTTP bind host (default from [gateway].host in config; 127.0.0.1).",
+)
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help="HTTP bind port (default from [gateway].port in config; 8787).",
+)
+@click.option(
+    "--init-db/--no-init-db",
+    default=False,
+    help="Initialize the SQLite gateway database on startup (S0 default: off; S1 will turn on).",
+)
 @click.pass_context
-def serve(ctx: click.Context, tools_dir: str | None) -> None:
-    """Start the MCP server (stdio transport)."""
+def serve(  # noqa: C901 — small command, complexity is acceptable
+    ctx: click.Context,
+    tools_dir: str | None,
+    stdio: bool,
+    http: bool,
+    host: str | None,
+    port: int | None,
+    init_db: bool,
+) -> None:
+    """Start the MCP server (stdio and/or Streamable HTTP transport)."""
     config = ctx.obj["config"]
+
+    # At least one transport must be enabled — otherwise nothing would run.
+    if not stdio and not http:
+        raise click.UsageError(
+            "At least one of --stdio or --http must be enabled."
+        )
+
+    # Resolve host/port: CLI > config > default.
+    bind_host = host or config.gateway.host
+    bind_port = port if port is not None else config.gateway.port
 
     resolved_tools_dir = _resolve_tools_dir(tools_dir)
     if resolved_tools_dir:
@@ -108,18 +151,65 @@ def serve(ctx: click.Context, tools_dir: str | None) -> None:
             err=True,
         )
 
+    # Lazy imports so --help / list-tools don't pay the cost.
     from evermcp.core.registry import ToolRegistry
     from evermcp.protocol.coordinator import Coordinator
+    from evermcp.protocol.http_server import HTTPServer
     from evermcp.protocol.mcp_server import MCPServer
 
     registry = ToolRegistry(tools_dir=resolved_tools_dir)
     coordinator = Coordinator(registry=registry, config=config)
     coordinator.initialize()
 
-    server = MCPServer(coordinator)
+    # Optional DB init (S0: off by default; S1+ will turn on).
+    if init_db:
+        from evermcp.storage import init_db
+
+        init_db()
+        click.echo("[evermcp] gateway database initialized", err=True)
+
+    # Build ONE MCPServer and share it across transports. This is the
+    # single source of truth for tool/resource/prompt handler registration —
+    # see https_server.py for the same guarantee on the HTTP side.
+    mcp_server = MCPServer(coordinator)
+
+    # Build the stdio coroutine (only if stdio enabled).
+    async def _stdio() -> None:
+        await mcp_server.run()
+
+    async def _http() -> None:
+        # Pass the shared MCPServer so HTTP handlers are the same instances
+        # registered by the stdio path.
+        http_server = HTTPServer(
+            coordinator,
+            host=bind_host,
+            port=bind_port,
+            mcp_server=mcp_server,
+        )
+        await http_server.run()
+
+    async def _run() -> None:
+        if stdio and http:
+            click.echo(
+                f"[evermcp] running stdio + Streamable HTTP on http://{bind_host}:{bind_port}/mcp",
+                err=True,
+            )
+            # If either task fails, gather propagates and we cancel the other.
+            await asyncio.gather(_stdio(), _http())
+        elif http:
+            click.echo(
+                f"[evermcp] running Streamable HTTP on http://{bind_host}:{bind_port}/mcp",
+                err=True,
+            )
+            await _http()
+        else:
+            click.echo("[evermcp] running stdio transport", err=True)
+            await _stdio()
 
     try:
-        asyncio.run(server.run())
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[evermcp] interrupted, shutting down", err=True)
     finally:
         coordinator.shutdown()
 

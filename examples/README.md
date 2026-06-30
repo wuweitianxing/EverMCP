@@ -35,6 +35,32 @@ You should see Claude (or another MCP client) pick up both tools.
 For the full specification (subprocess tools, async tools, error envelopes,
 security model), see [`../docs/adding-tools.md`](../docs/adding-tools.md).
 
+## Resources & Prompts (S0 manual registration)
+
+`@tool` is auto-registered by the local-filesystem scan, but `@resource`
+and `@prompt` (defined in `evermcp.core.capability`) are **not** — S0
+ships no `InlineDeclarationProvider` yet. To expose a Resource or Prompt
+in S0, call the helper in your entry script after `Coordinator.initialize()`:
+
+````python
+from evermcp.core.registry import ToolRegistry
+from evermcp.protocol.coordinator import Coordinator
+from examples.tools.demo.resource_prompt_demo import register_demo_capabilities
+
+coord = Coordinator(registry=ToolRegistry(tools_dir="examples/tools"))
+coord.initialize()
+register_demo_capabilities(coord.registry)  # wires `about` + `demo.greet_prompt`
+````
+
+The helper attaches the demo `ResourceFunc`/`PromptFunc` directly to the
+`LocalFilesystemProvider._caps` dict — the registry's `list_resources`,
+`list_prompts`, `read_resource`, and `get_prompt` all read from that dict.
+For S1, replace this with an `InlineDeclarationProvider`; call sites
+using `coordinator.read_resource(...)` / `coordinator.get_prompt(...)`
+remain unchanged. See
+[`tools/demo/resource_prompt_demo.py`](tools/demo/resource_prompt_demo.py)
+for the full demo.
+
 ## Layout
 
 ```

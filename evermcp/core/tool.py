@@ -79,6 +79,14 @@ def make_error(code: int, message: str, **extra: Any) -> ToolError:
 class ToolFunc:
     """Wrapper around a tool function, carrying metadata for registration."""
 
+    # S0: unified capability model — every ToolFunc is a Capability(TOOL).
+    # `kind` is a class attribute so duck-typed checks (Capability Protocol)
+    # succeed without per-instance setup.
+    kind = "tool"  # CapabilityKind.TOOL; kept as str to avoid import cycle
+    enabled = True
+    # Source tag — set by the provider (LocalFilesystemProvider sets "local").
+    source = "local"
+
     @property
     def category(self) -> str:
         return self._category

@@ -9,6 +9,10 @@ Env var mapping:
     EVERMCP_FS_ALLOWLIST     → filesystem_allowlist (comma-separated)
     EVERMCP_NET_ALLOWLIST    → network_allowlist (comma-separated)
     EVERMCP_TOOLS_DIR        → tools directory (CLI --tools-dir flag overrides)
+    EVERMCP_GATEWAY_HOST     → gateway.host (S0)
+    EVERMCP_GATEWAY_PORT     → gateway.port (S0)
+    EVERMCP_GATEWAY_REQUIRE_KEY → gateway.require_key (S0, default false)
+    EVERMCP_GATEWAY_DB_URL   → gateway.db_url (S0)
 """
 
 from __future__ import annotations
@@ -27,6 +31,34 @@ _DEFAULT_CONFIG_DIR = Path("~/.evermcp").expanduser()
 _DEFAULT_CONFIG_FILE = _DEFAULT_CONFIG_DIR / "config.toml"
 
 
+class GatewayConfig:
+    """Gateway transport settings (S0).
+
+    The actual HTTP server reads these via Config.gateway; only `host`/`port`
+    are consulted in S0. `require_key` and `db_url` are reserved for S2 (auth)
+    and stored as inert metadata until then.
+    """
+
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8787,
+        require_key: bool = False,
+        db_url: str = "sqlite:///~/.evermcp/evermcp.db",
+    ) -> None:
+        self.host = host
+        self.port = int(port)
+        # Reserved for S2 — S0 ignores these values.
+        self.require_key = bool(require_key)
+        self.db_url = db_url
+
+    def __repr__(self) -> str:
+        return (
+            f"GatewayConfig(host={self.host!r}, port={self.port}, "
+            f"require_key={self.require_key}, db_url={self.db_url!r})"
+        )
+
+
 class Config:
     """EverMCP configuration with layered loading (defaults → TOML → env vars).
 
@@ -34,6 +66,9 @@ class Config:
     locations) and **logging**. Tool-specific config (e.g. TTS model paths,
     per-tool timeouts) lives in tool code — EverMCP doesn't ship a registry of
     known tools, so it can't pre-allocate fields for them.
+
+    S0: adds a nested `gateway: GatewayConfig` field for the new HTTP transport
+    (and the `[gateway]` TOML section).
     """
 
     def __init__(
@@ -45,6 +80,7 @@ class Config:
         filesystem_allowlist: list[Path | str] | None = None,
         network_allowlist: list[str] | None = None,
         denied_paths: list[Path | str] | None = None,
+        gateway: GatewayConfig | None = None,
     ) -> None:
         self.log_level = log_level.upper()
         self.log_file = _resolve_path(log_file) if log_file else _DEFAULT_CONFIG_DIR / "evermcp.log"
@@ -53,6 +89,7 @@ class Config:
         self.filesystem_allowlist = [_resolve_path(p) for p in (filesystem_allowlist or [])]
         self.network_allowlist = network_allowlist or []
         self.denied_paths = [_resolve_path(p) for p in (denied_paths or [])]
+        self.gateway = gateway or GatewayConfig()
 
     # ------------------------------------------------------------------
     # Load: defaults → TOML → env vars
@@ -91,6 +128,7 @@ class Config:
         general = data.get("general", {})
         ffmpeg = data.get("ffmpeg", {})
         security = data.get("security", {})
+        gateway = data.get("gateway", {})
 
         if "log_level" in general:
             cfg.log_level = general["log_level"].upper()
@@ -101,11 +139,24 @@ class Config:
         if "default_timeout_s" in ffmpeg:
             cfg.ffmpeg_timeout_s = int(ffmpeg["default_timeout_s"])
         if "filesystem_allowlist" in security:
-            cfg.filesystem_allowlist = [_resolve_path(p) for p in security["filesystem_allowlist"]]
+            cfg.filesystem_allowlist = [
+                _resolve_path(p) for p in security["filesystem_allowlist"]
+            ]
         if "network_allowlist" in security:
             cfg.network_allowlist = list(security["network_allowlist"])
         if "denied_paths" in security:
             cfg.denied_paths = [_resolve_path(p) for p in security["denied_paths"]]
+
+        # [gateway] section (S0)
+        if gateway:
+            if "host" in gateway:
+                cfg.gateway.host = str(gateway["host"])
+            if "port" in gateway:
+                cfg.gateway.port = int(gateway["port"])
+            if "require_key" in gateway:
+                cfg.gateway.require_key = bool(gateway["require_key"])
+            if "db_url" in gateway:
+                cfg.gateway.db_url = str(gateway["db_url"])
 
         return cfg
 
@@ -126,11 +177,27 @@ class Config:
 
         val = os.environ.get("EVERMCP_FS_ALLOWLIST")
         if val:
-            cfg.filesystem_allowlist = [_resolve_path(p) for p in val.split(",") if p.strip()]
+            cfg.filesystem_allowlist = [
+                _resolve_path(p) for p in val.split(",") if p.strip()
+            ]
 
         val = os.environ.get("EVERMCP_NET_ALLOWLIST")
         if val:
             cfg.network_allowlist = [p.strip() for p in val.split(",") if p.strip()]
+
+        # [gateway] env overrides (S0)
+        val = os.environ.get("EVERMCP_GATEWAY_HOST")
+        if val:
+            cfg.gateway.host = val
+        val = os.environ.get("EVERMCP_GATEWAY_PORT")
+        if val:
+            cfg.gateway.port = int(val)
+        val = os.environ.get("EVERMCP_GATEWAY_REQUIRE_KEY")
+        if val:
+            cfg.gateway.require_key = val.lower() in ("1", "true", "yes", "on")
+        val = os.environ.get("EVERMCP_GATEWAY_DB_URL")
+        if val:
+            cfg.gateway.db_url = val
 
         return cfg
 
@@ -146,7 +213,8 @@ class Config:
             f"ffmpeg_timeout_s={self.ffmpeg_timeout_s}, "
             f"filesystem_allowlist={self.filesystem_allowlist!r}, "
             f"network_allowlist={self.network_allowlist!r}, "
-            f"denied_paths={self.denied_paths!r})"
+            f"denied_paths={self.denied_paths!r}, "
+            f"gateway={self.gateway!r})"
         )
 
 

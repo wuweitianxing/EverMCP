@@ -1,22 +1,32 @@
-"""Coordinator — receives tool calls from MCP layer, dispatches to workers.
+"""Coordinator — receives tool/resource/prompt calls from MCP layer, dispatches.
 
-v1: Single LocalWorker, **in-process direct function call** (no serialization,
-no dispatcher; see DESIGN.md §Worker Protocol §Schema). Coordinator holds a
-LocalWorker instance and invokes its methods directly with Python dicts.
+S0 architecture (per docs/gateway-plan.md):
+- Holds a CapabilityRegistry (multi-provider aggregation).
+- S0: `ToolRegistry` (subclass) is still the default — keeps v0.2.0 behavior.
+- S0 keeps the **synchronous** `call_tool` API used by stdio + LocalWorker;
+  an additional `call_tool_async` is the canonical path for HTTP / future WS.
 
-v2: Multiple workers, capability-based routing. The dispatch layer here will
-gain a JSON-RPC-over-gRPC serialization boundary (Coordinator -> remote
-LocalWorker), but the v1 in-process path stays as a fast local fastpath.
+Routing: name-based, no namespace prefix in S0 (single LocalFilesystemProvider).
+S1 will introduce `local:`, `inline:`, `remote:<id>:` prefixes.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from evermcp.core.registry import ToolRegistry
-from evermcp.core.tool import ToolContext
+from evermcp.core.registry import CapabilityRegistry, ToolRegistry
+from evermcp.core.tool import (
+    SECURITY_VIOLATION,
+    TOOL_EXCEPTION,
+    TOOL_INVALID_OUTPUT,
+    TOOL_NOT_FOUND,
+    TOOL_TIMEOUT,
+    ToolContext,
+    make_error,
+)
 from evermcp.workers.local import LocalWorker
 
 if TYPE_CHECKING:
@@ -28,26 +38,28 @@ logger = logging.getLogger(__name__)
 
 
 class Coordinator:
-    """Central dispatcher that routes tool calls to workers.
+    """Central dispatcher that routes calls to providers via the registry.
 
-    v1: Wraps a single LocalWorker. The routing logic is trivial (one worker).
-    v2: Will maintain a worker pool and route based on CapabilityDescriptor.
+    S0: Wraps a ToolRegistry (back-compat). New S0 surface adds
+    `list_resources` / `list_prompts` / `read_resource` / `get_prompt` /
+    `call_tool_async` for the HTTP / future-WS paths.
     """
 
     def __init__(
         self,
-        registry: ToolRegistry | None = None,
+        registry: CapabilityRegistry | None = None,
         config: Config | None = None,
     ) -> None:
-        self._registry = registry or ToolRegistry()
+        # Back-compat: instantiating `Coordinator()` with no registry still
+        # produces a working local provider pointed at the default tools dir.
+        self._registry: CapabilityRegistry = registry or ToolRegistry()
         self._worker = LocalWorker(self._registry)
         self._config = config
         # Build SafePath once at init so we don't reconstruct it per call.
-        # If neither allowlist nor denied paths are configured, _safe_path stays None
-        # (i.e. no filesystem policy enforcement — tools are responsible for their own checks).
         self._safe_path: SafePath | None = None
         if config and (config.filesystem_allowlist or config.denied_paths):
             from evermcp.security.safepath import SafePath as _SafePath
+
             self._safe_path = _SafePath(
                 allowlist=config.filesystem_allowlist,
                 denied=config.denied_paths,
@@ -55,12 +67,13 @@ class Coordinator:
         # Build SafeURL once at init. Always create one so tools can use it for
         # default-deny (private/loopback IPs) even when no allowlist is configured.
         from evermcp.security.safeurl import SafeURL as _SafeURL
+
         self._safe_url: SafeURL = _SafeURL(
             allowlist=config.network_allowlist if config else None,
         )
 
     @property
-    def registry(self) -> ToolRegistry:
+    def registry(self) -> CapabilityRegistry:
         return self._registry
 
     @property
@@ -80,42 +93,207 @@ class Coordinator:
         return self._safe_url
 
     def initialize(self) -> None:
-        """Scan tools and start hot-reload watcher."""
+        """Scan tools and start hot-reload watcher (delegates to registry)."""
         self._registry.scan()
         self._registry.start_watching()
-        logger.info("Coordinator initialized with %d tools", len(self._registry.list_tools()))
+        logger.info(
+            "Coordinator initialized with %d tools",
+            len(self._registry.list_tools()),
+        )
 
     def shutdown(self) -> None:
-        """Stop the hot-reload watcher."""
+        """Stop the hot-reload watcher (delegates to registry)."""
         self._registry.stop_watching()
         logger.info("Coordinator shut down")
 
+    # ------------------------------------------------------------------
+    # Capability list helpers — back-compat + new S0 surface
+    # ------------------------------------------------------------------
+
     def list_tools(self) -> list[dict[str, Any]]:
-        """List all available tools. Delegates to worker."""
-        return self._worker.list_tools()
+        """List all available tools (delegates to registry).
 
-    def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Dispatch a tool call to the worker.
+        S0: returns raw ToolDescriptor dicts with the same shape v0.2.0 produced.
+        """
+        return self._registry.list_tools()
 
-        v1: Always sends to the single LocalWorker.
-        v2: Will select worker based on capabilities.
+    def list_resources(self) -> list[dict[str, Any]]:
+        """List all available resources (S0: providers may return [])."""
+        return self._registry.list_resources()
 
-        Builds a ToolContext with safe_path and config wired from __init__ so
-        tools can access them via the ctx parameter.
+    def list_prompts(self) -> list[dict[str, Any]]:
+        """List all available prompts (S0: providers may return [])."""
+        return self._registry.list_prompts()
+
+    def list_resource_templates(self) -> list[dict[str, Any]]:
+        """List resource templates (S0: always []; S1+ may populate from inline decls)."""
+        return []
+
+    # ------------------------------------------------------------------
+    # Capability read/get (used by MCP resources/read and prompts/get)
+    # ------------------------------------------------------------------
+
+    async def read_resource(self, uri: str) -> tuple[Any, str]:
+        """Read a resource by URI. Returns (content, mime_type).
+
+        Raises KeyError if no resource matches.
+        """
+        return await self._registry.read_resource(uri)
+
+    async def get_prompt(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> str:
+        """Render a prompt by name with the given arguments.
+
+        Raises KeyError if no prompt matches.
+        """
+        return await self._registry.get_prompt(name, arguments)
+
+    # ------------------------------------------------------------------
+    # Tool call — sync (v0.2.0 contract) + async (S0 HTTP / future WS)
+    # ------------------------------------------------------------------
+
+    def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Synchronous tool call — back-compat shim over the LocalWorker.
+
+        v0.2.0 callers (stdio MCP server, LocalWorker, existing tests) keep
+        using this signature. Internally we delegate to LocalWorker, which
+        still uses the synchronous `ToolFunc.call(args, ctx)` path.
+        """
+        return self._worker.call_tool(name, arguments or {}, ctx=self._build_ctx())
+
+    async def call_tool_async(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Async tool call — preferred path for HTTP / future WS handlers.
+
+        Routes through the CapabilityRegistry's multi-provider async surface,
+        which LocalFilesystemProvider implements via `asyncio.to_thread`.
+        Returns the same envelope as `call_tool`:
+            {success: bool, result?: Any, error?: {code, message, data}}
         """
         call_id = str(uuid.uuid4())
         args = arguments or {}
-        ctx = ToolContext(
+        ctx = self._build_ctx()
+        logger.info("Dispatching async tool call: %s (call_id=%s)", name, call_id)
+
+        try:
+            result = await self._registry.call(name, args, ctx)
+        except KeyError:
+            return {
+                "success": False,
+                "error": make_error(
+                    TOOL_NOT_FOUND, f"Tool not found: {name}", tool=name, args=args
+                ),
+            }
+        except Exception as exc:
+            # Mirror LocalWorker's classification order (see
+            # evermcp/workers/local.py:call_tool) so HTTP/WS callers see the
+            # same error envelope as the stdio path — most importantly
+            # SECURITY_VIOLATION (-32005) and TOOL_TIMEOUT (-32002) instead
+            # of being collapsed into a generic TOOL_EXCEPTION.
+            envelope = self._classify_exception(exc, name, args)
+            if envelope is not None:
+                return envelope
+            logger.exception("Tool %s raised (async)", name)
+            return {
+                "success": False,
+                "error": make_error(
+                    TOOL_EXCEPTION,
+                    f"Tool {name} raised an exception: {exc}",
+                    tool=name,
+                    args=args,
+                    stderr=str(exc),
+                ),
+            }
+
+        # Validate JSON serializability to match sync path's TOOL_INVALID_OUTPUT.
+        try:
+            json.dumps(result)
+        except (TypeError, ValueError) as exc:
+            logger.error(
+                "Tool %s returned non-JSON-serializable result: %s", name, exc
+            )
+            return {
+                "success": False,
+                "error": make_error(
+                    TOOL_INVALID_OUTPUT,
+                    f"Tool {name} returned non-JSON-serializable output: {exc}",
+                    tool=name,
+                    args=args,
+                    result_type=type(result).__name__,
+                ),
+            }
+
+        logger.info("Tool call result: %s (call_id=%s, success=True)", name, call_id)
+        return {"success": True, "result": result}
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _build_ctx(self) -> ToolContext:
+        """Construct a ToolContext with safe_path / safe_url / config wired."""
+        return ToolContext(
             cwd=".",
             logger=logger,
             safe_path=self._safe_path,
             safe_url=self._safe_url,
             config=self._config,
         )
-        logger.info("Dispatching tool call: %s (call_id=%s)", name, call_id)
-        result = self._worker.call_tool(name, args, call_id=call_id, ctx=ctx)
-        logger.info("Tool call result: %s (call_id=%s, success=%s)", name, call_id, result.get("success"))
-        return result
+
+    def _classify_exception(
+        self,
+        exc: BaseException,
+        name: str,
+        args: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Map known tool exceptions to the v0.2.0 error envelope.
+
+        Mirrors the classification order used by ``LocalWorker.call_tool`` so
+        async (HTTP / future-WS) callers see the same error codes as the
+        sync stdio path. Returns ``None`` when the exception does not match
+        any known category — the caller is then responsible for producing
+        a generic TOOL_EXCEPTION envelope.
+
+        Categories (in order of precedence):
+            SecurityViolation       → SECURITY_VIOLATION (-32005)
+            RuntimeError("timeout") → TOOL_TIMEOUT     (-32002)
+        """
+        # Import here to avoid a circular import with the security module.
+        from evermcp.security.safepath import SecurityViolation
+
+        if isinstance(exc, SecurityViolation):
+            logger.warning("Tool %s security violation: %s", name, exc)
+            return {
+                "success": False,
+                "error": make_error(
+                    SECURITY_VIOLATION,
+                    f"Security violation in tool {name}: {exc}",
+                    tool=name,
+                    args=args,
+                ),
+            }
+
+        if isinstance(exc, RuntimeError) and "timeout" in str(exc).lower():
+            logger.error("Tool %s timed out: %s", name, exc)
+            return {
+                "success": False,
+                "error": make_error(
+                    TOOL_TIMEOUT,
+                    f"Tool {name} timed out: {exc}",
+                    tool=name,
+                    args=args,
+                ),
+            }
+
+        return None
 
     def get_capabilities(self) -> dict[str, Any]:
         """Get device capabilities from the worker."""
