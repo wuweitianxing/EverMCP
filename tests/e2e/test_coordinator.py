@@ -221,7 +221,8 @@ class TestToolContextInjection:
 
         cfg = Config(filesystem_allowlist=[str(allowed_dir)])
         # Point at the examples/tools/ dir (where io.read_file lives in v0.2.0+)
-        registry = ToolRegistry(tools_dir=Path("E:/project/EverMCP/examples/tools"))
+        examples_tools = Path(__file__).resolve().parent.parent.parent / "examples" / "tools"
+        registry = ToolRegistry(tools_dir=examples_tools)
         coord = Coordinator(registry=registry, config=cfg)
         coord.initialize()
         try:
@@ -243,7 +244,8 @@ class TestToolContextInjection:
 
         cfg = Config(filesystem_allowlist=[str(tmp_path / "allowed")])
         # Point at the examples/tools/ dir (where io.read_file lives in v0.2.0+)
-        registry = ToolRegistry(tools_dir=Path("E:/project/EverMCP/examples/tools"))
+        examples_tools = Path(__file__).resolve().parent.parent.parent / "examples" / "tools"
+        registry = ToolRegistry(tools_dir=examples_tools)
         coord = Coordinator(registry=registry, config=cfg)
         coord.initialize()
         try:

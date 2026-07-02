@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -103,12 +104,16 @@ class TestNotInAllowlist:
             sp.validate(safe_dir / "other" / "random.txt")
 
     def test_absolute_system_path(self, sp: SafePath) -> None:
+        # A system path outside the allowlist must be rejected on every OS.
+        system_path = "C:\\Windows\\System32" if sys.platform == "win32" else "/etc"
         with pytest.raises(SecurityViolation, match="not in allowlist"):
-            sp.validate("C:\\Windows\\System32")
+            sp.validate(system_path)
 
     def test_root_path(self, sp: SafePath) -> None:
+        # The filesystem root must be rejected (outside the allowlist).
+        root_path = "C:\\" if sys.platform == "win32" else "/"
         with pytest.raises(SecurityViolation, match="not in allowlist"):
-            sp.validate("C:\\")
+            sp.validate(root_path)
 
 
 # ---------------------------------------------------------------------------
