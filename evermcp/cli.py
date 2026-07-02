@@ -8,6 +8,7 @@ import logging.handlers
 import os
 import sys
 from datetime import UTC, datetime
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 import click
@@ -67,11 +68,12 @@ def _setup_logging(config_log_level: str, config_log_file: Path, verbose: bool) 
 
 
 @click.group()
+@click.version_option(version=_pkg_version("evermcp"), prog_name="evermcp")
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
 @click.option("--config", "-c", "config_file", default=None, help="Path to config TOML file")
 @click.pass_context
 def main(ctx: click.Context, verbose: bool, config_file: str | None) -> None:
-    """EverMCP — Cross-device tool orchestration for AI Agents."""
+    """EverMCP — MCP Gateway + Capability Governance UI for AI Agents."""
     config = Config.load(config_file=config_file)
     ctx.ensure_object(dict)
     ctx.obj["config"] = config

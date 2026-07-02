@@ -18,6 +18,25 @@ from click.testing import CliRunner
 from evermcp.cli import _resolve_tools_dir, main
 
 # ---------------------------------------------------------------------------
+# --version flag (README documents `evermcp --version`)
+# ---------------------------------------------------------------------------
+
+
+class TestVersionOption:
+    """Smoke test for `evermcp --version`."""
+
+    def test_version_flag_prints_version(self) -> None:
+        """--version prints the package version and exits 0."""
+        from importlib.metadata import version as _pkg_version
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--version"])
+        assert result.exit_code == 0
+        assert _pkg_version("evermcp") in result.output
+        assert "evermcp" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
 # _resolve_tools_dir pure function
 # ---------------------------------------------------------------------------
 
