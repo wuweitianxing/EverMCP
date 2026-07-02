@@ -1,10 +1,10 @@
 """Unit tests for the SQLite persistence layer (S0 base)."""
+
 from __future__ import annotations
 
 import hashlib
 from pathlib import Path
 
-import pytest
 from sqlmodel import Session
 
 from evermcp.storage import (
@@ -16,10 +16,10 @@ from evermcp.storage import (
     list_inline_capabilities,
 )
 
-
 # ---------------------------------------------------------------------------
 # Engine / schema
 # ---------------------------------------------------------------------------
+
 
 class TestInitDb:
     def test_init_db_idempotent(self, tmp_path: Path) -> None:
@@ -37,6 +37,7 @@ class TestInitDb:
 # ---------------------------------------------------------------------------
 # list_inline_capabilities
 # ---------------------------------------------------------------------------
+
 
 class TestListInlineCapabilities:
     def test_empty_db_returns_empty_list(self, tmp_path: Path) -> None:
@@ -95,6 +96,7 @@ class TestListInlineCapabilities:
 # hash_api_key
 # ---------------------------------------------------------------------------
 
+
 class TestHashApiKey:
     def test_hash_matches_sha256(self) -> None:
         """hash_api_key('foo') == sha256('foo').hexdigest()."""
@@ -120,6 +122,7 @@ class TestHashApiKey:
 # ---------------------------------------------------------------------------
 # DEFAULT_DB_URL
 # ---------------------------------------------------------------------------
+
 
 class TestDefaultDbUrl:
     def test_starts_with_sqlite(self) -> None:

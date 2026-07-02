@@ -12,6 +12,7 @@ from evermcp.security.safepath import SafePath, SecurityViolation
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def safe_dir(tmp_path: Path) -> Path:
     """Create a directory structure for testing.
@@ -51,6 +52,7 @@ def sp(safe_dir: Path) -> SafePath:
 # Allowed paths
 # ---------------------------------------------------------------------------
 
+
 class TestAllowedPaths:
     def test_direct_child(self, sp: SafePath, safe_dir: Path) -> None:
         result = sp.validate(safe_dir / "allowed" / "data" / "video.mp4")
@@ -74,6 +76,7 @@ class TestAllowedPaths:
 # Denied paths
 # ---------------------------------------------------------------------------
 
+
 class TestDeniedPaths:
     def test_denied_child(self, sp: SafePath, safe_dir: Path) -> None:
         with pytest.raises(SecurityViolation, match="denied list"):
@@ -93,6 +96,7 @@ class TestDeniedPaths:
 # Not in allowlist
 # ---------------------------------------------------------------------------
 
+
 class TestNotInAllowlist:
     def test_outside_allowlist(self, sp: SafePath, safe_dir: Path) -> None:
         with pytest.raises(SecurityViolation, match="not in allowlist"):
@@ -111,6 +115,7 @@ class TestNotInAllowlist:
 # Path traversal attacks
 # ---------------------------------------------------------------------------
 
+
 class TestTraversalAttacks:
     def test_dotdot_from_allowed_to_denied(self, sp: SafePath, safe_dir: Path) -> None:
         """../ traversal from an allowed dir to a denied dir must be blocked.
@@ -119,7 +124,9 @@ class TestTraversalAttacks:
         After resolve: should point to denied/secret/key.pem
         """
         with pytest.raises(SecurityViolation, match="denied list"):
-            sp.validate(safe_dir / "allowed" / "data" / ".." / ".." / "denied" / "secret" / "key.pem")
+            sp.validate(
+                safe_dir / "allowed" / "data" / ".." / ".." / "denied" / "secret" / "key.pem"
+            )
 
     def test_dotdot_from_allowed_to_outside(self, sp: SafePath, safe_dir: Path) -> None:
         """../ traversal from an allowed dir to outside must be blocked.
@@ -149,6 +156,7 @@ class TestTraversalAttacks:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_empty_allowlist_blocks_everything(self, safe_dir: Path) -> None:

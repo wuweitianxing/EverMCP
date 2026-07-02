@@ -18,22 +18,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from evermcp.core.tool import ToolContext
 
 if TYPE_CHECKING:
-    from mcp.types import Prompt as MCPPrompt
-    from mcp.types import Resource as MCPResource
-    from mcp.types import ResourceTemplate as MCPResourceTemplate
+    pass
 
 
 # ---------------------------------------------------------------------------
 # CapabilityKind — MCP three-primitive taxonomy
 # ---------------------------------------------------------------------------
 
-class CapabilityKind(str, Enum):
+
+class CapabilityKind(StrEnum):
     """MCP three-primitive taxonomy.
 
     Matches MCP spec: tools are invokable functions; resources are addressable
@@ -48,6 +47,7 @@ class CapabilityKind(str, Enum):
 # ---------------------------------------------------------------------------
 # Context-injection helper (shared by ResourceFunc and PromptFunc)
 # ---------------------------------------------------------------------------
+
 
 def _inject_ctx_into_kwargs(
     fn: Callable[..., Any],
@@ -81,6 +81,7 @@ def _inject_ctx_into_kwargs(
 # Capability — Protocol that ToolFunc, ResourceFunc, PromptFunc all conform to
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class Capability(Protocol):
     """Unified interface for Tool / Resource / Prompt.
@@ -91,7 +92,7 @@ class Capability(Protocol):
     Properties:
         kind:        which MCP primitive this capability represents
         name:        unique within the provider; e.g. "io.read_file"
-        source:      provenance tag; "local" | "remote:<id>" | "inline"
+        source:      provenance tag; "local" | "remote.<id>" | "inline"
         description: human-readable text shown to the Agent
         enabled:     if False, hidden from MCP list_* but kept in registry
     """
@@ -128,6 +129,7 @@ class Capability(Protocol):
 # ---------------------------------------------------------------------------
 # ResourceFunc — @resource decorator
 # ---------------------------------------------------------------------------
+
 
 class ResourceFunc:
     """Wrapper around a function that produces a Resource's content.
@@ -212,6 +214,7 @@ def resource(
 # PromptFunc — @prompt decorator
 # ---------------------------------------------------------------------------
 
+
 class PromptFunc:
     """Wrapper around a function that renders a Prompt's messages.
 
@@ -279,7 +282,9 @@ class PromptFunc:
 
     @property
     def arguments(self) -> list[dict[str, Any]]:
-        return self._explicit_arguments if self._explicit_arguments is not None else self._derive_arguments()
+        if self._explicit_arguments is not None:
+            return self._explicit_arguments
+        return self._derive_arguments()
 
     def descriptor(self) -> dict[str, Any]:
         return {
@@ -323,6 +328,7 @@ def prompt(
 # ---------------------------------------------------------------------------
 # CapabilityRecord — internal registry-friendly view (no behavior, metadata only)
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class CapabilityRecord:

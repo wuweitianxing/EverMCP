@@ -19,21 +19,21 @@ from evermcp.core.registry import ToolRegistry
 # Helpers
 # ---------------------------------------------------------------------------
 
-TOOL_SOURCE_INITIAL = '''\
+TOOL_SOURCE_INITIAL = """\
 from evermcp.core.tool import tool
 
 @tool(description="Initial description")
 def foo(x: int) -> dict:
     return {"x": x}
-'''
+"""
 
-TOOL_SOURCE_MODIFIED = '''\
+TOOL_SOURCE_MODIFIED = """\
 from evermcp.core.tool import tool
 
 @tool(description="Modified description")
 def foo(x: int) -> dict:
     return {"x": x}
-'''
+"""
 
 
 @pytest.fixture
@@ -68,6 +68,7 @@ def _wait_for(
 # Test 1: Create tool file → appears in registry
 # ---------------------------------------------------------------------------
 
+
 def test_create_tool_file_appears(registry: ToolRegistry, tools_dir: Path) -> None:
     """Writing a new .py file in tools/<category>/ should register the tool within 5s."""
     # Start with 0 tools
@@ -98,6 +99,7 @@ def test_create_tool_file_appears(registry: ToolRegistry, tools_dir: Path) -> No
 # ---------------------------------------------------------------------------
 # Test 2: Modify tool file → descriptor updates
 # ---------------------------------------------------------------------------
+
 
 def test_modify_tool_file_updates(registry: ToolRegistry, tools_dir: Path) -> None:
     """Changing the @tool description should update the descriptor within 5s."""
@@ -134,6 +136,7 @@ def test_modify_tool_file_updates(registry: ToolRegistry, tools_dir: Path) -> No
 # ---------------------------------------------------------------------------
 # Test 3: Delete tool file → tool disappears
 # ---------------------------------------------------------------------------
+
 
 def test_delete_tool_file_disappears(registry: ToolRegistry, tools_dir: Path) -> None:
     """Deleting the .py file should unregister the tool within 5s."""

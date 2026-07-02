@@ -1,4 +1,5 @@
 """Unit tests for examples/tools/demo/hello.py — the minimal example tool."""
+
 from __future__ import annotations
 
 import sys
@@ -16,6 +17,7 @@ hello: ToolFunc = _mod_hello  # type: ignore[assignment]
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
+
 
 class TestRegistration:
     def test_is_tool_func(self) -> None:
@@ -35,6 +37,7 @@ class TestRegistration:
 # Input schema
 # ---------------------------------------------------------------------------
 
+
 class TestInputSchema:
     def test_schema_has_name_property(self) -> None:
         schema = hello.input_schema()
@@ -50,6 +53,7 @@ class TestInputSchema:
 # ---------------------------------------------------------------------------
 # Behavior
 # ---------------------------------------------------------------------------
+
 
 class TestBehavior:
     def test_returns_greeting(self) -> None:

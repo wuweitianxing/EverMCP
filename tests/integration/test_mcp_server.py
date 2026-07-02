@@ -59,15 +59,18 @@ def _make_server_params(tools_dir: Path) -> StdioServerParameters:
 async def _run_test(async_test_fn, tools_dir: Path) -> None:
     """Boilerplate: spin up stdio_client + session, run test, tear down."""
     params = _make_server_params(tools_dir)
-    async with stdio_client(params) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            await async_test_fn(session)
+    async with (
+        stdio_client(params) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        await async_test_fn(session)
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def tools_dir(tmp_path: Path) -> Path:
@@ -105,6 +108,7 @@ def tools_dir(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_list_tools(tools_dir: Path) -> None:
     """Server should list tools discovered from the tools directory."""

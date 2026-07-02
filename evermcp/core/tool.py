@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # ToolContext — injected into tool functions that declare `ctx: ToolContext`
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ToolContext:
     """Runtime context injected into tool functions.
@@ -43,6 +44,7 @@ class ToolContext:
 # ---------------------------------------------------------------------------
 # ToolDescriptor — metadata exposed via MCP / worker protocol
 # ---------------------------------------------------------------------------
+
 
 class ToolDescriptor(TypedDict):
     name: str
@@ -75,6 +77,7 @@ def make_error(code: int, message: str, **extra: Any) -> ToolError:
 # ---------------------------------------------------------------------------
 # @tool decorator
 # ---------------------------------------------------------------------------
+
 
 class ToolFunc:
     """Wrapper around a tool function, carrying metadata for registration."""
@@ -183,6 +186,7 @@ def tool(description: str = "") -> Callable[[Callable[..., Any]], ToolFunc]:
 # Type → JSON Schema helpers (simplified for v1)
 # ---------------------------------------------------------------------------
 
+
 def _type_to_schema(name: str, hint: Any, default: Any) -> dict[str, Any]:
     """Convert a Python type hint to a JSON Schema property.
 
@@ -222,10 +226,8 @@ def _type_to_schema(name: str, hint: Any, default: Any) -> dict[str, Any]:
     if origin is typing.Union:
         # Optional[T] case (Union[T, None])
         args = [a for a in hint.__args__ if a is not type(None)]
-        if len(args) == 1:
-            schema = _type_to_schema(name, args[0], None)
-        else:
-            schema = {"type": "string"}  # multiple non-None types — too complex for v1
+        # multiple non-None types — too complex for v1
+        schema = _type_to_schema(name, args[0], None) if len(args) == 1 else {"type": "string"}
     elif origin is typing.Literal:
         schema = {"type": "string", "enum": list(hint.__args__)}
     elif origin is list:
@@ -268,7 +270,11 @@ def _type_to_schema(name: str, hint: Any, default: Any) -> dict[str, Any]:
                 schema["minLength"] = m.min_length
             elif cls_name == "MaxLen" and hasattr(m, "max_length"):
                 schema["maxLength"] = m.max_length
-            elif cls_name == "_PydanticGeneralMetadata" and hasattr(m, "pattern") and m.pattern is not None:
+            elif (
+                cls_name == "_PydanticGeneralMetadata"
+                and hasattr(m, "pattern")
+                and m.pattern is not None
+            ):
                 schema["pattern"] = m.pattern
 
     # Apply default value

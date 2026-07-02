@@ -9,11 +9,11 @@ Tests cover:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import create_engine
 
 from evermcp.core.capability import CapabilityKind
 from evermcp.core.provider import (
@@ -22,10 +22,7 @@ from evermcp.core.provider import (
     _InlineResourceCapability,
     _InlineToolCapability,
 )
-from evermcp.storage import DEFAULT_DB_URL, InlineCapability, init_db
-from sqlalchemy import create_engine
-from sqlmodel import Session
-
+from evermcp.storage import init_db
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -73,16 +70,18 @@ class TestInlineDeclarationProvider:
             kind="tool",
             name="test.translate",
             description="Translate text to a target language",
-            schema_json=json.dumps({
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                        "lang": {"type": "string"},
-                    },
-                    "required": ["text", "lang"],
+            schema_json=json.dumps(
+                {
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string"},
+                            "lang": {"type": "string"},
+                        },
+                        "required": ["text", "lang"],
+                    }
                 }
-            }),
+            ),
         )
 
         caps = inline_provider.list_capabilities()
@@ -97,10 +96,12 @@ class TestInlineDeclarationProvider:
             kind="resource",
             name="test.config",
             description="Application configuration",
-            schema_json=json.dumps({
-                "uriTemplate": "config://app",
-                "mimeType": "application/json",
-            }),
+            schema_json=json.dumps(
+                {
+                    "uriTemplate": "config://app",
+                    "mimeType": "application/json",
+                }
+            ),
         )
 
         caps = inline_provider.list_capabilities()
@@ -113,11 +114,9 @@ class TestInlineDeclarationProvider:
             kind="prompt",
             name="test.greet",
             description="Greeting prompt template",
-            schema_json=json.dumps({
-                "arguments": [
-                    {"name": "name", "description": "User name", "required": True}
-                ]
-            }),
+            schema_json=json.dumps(
+                {"arguments": [{"name": "name", "description": "User name", "required": True}]}
+            ),
         )
 
         caps = inline_provider.list_capabilities()
@@ -299,11 +298,14 @@ async def test_api_create_capability(coordinator, in_memory_engine):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        resp = await ac.post("/api/capabilities", json={
-            "kind": "tool",
-            "name": "api.test.create",
-            "description": "Created via API",
-        })
+        resp = await ac.post(
+            "/api/capabilities",
+            json={
+                "kind": "tool",
+                "name": "api.test.create",
+                "description": "Created via API",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "created"
@@ -324,10 +326,13 @@ async def test_api_create_capability_validation(coordinator):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Missing name
-        resp = await ac.post("/api/capabilities", json={
-            "kind": "tool",
-            "description": "No name",
-        })
+        resp = await ac.post(
+            "/api/capabilities",
+            json={
+                "kind": "tool",
+                "description": "No name",
+            },
+        )
         assert resp.status_code == 400
 
 
@@ -340,11 +345,14 @@ async def test_api_test_call_endpoint(coordinator):
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        resp = await ac.post("/api/test", json={
-            "name": "nonexistent.tool",
-            "kind": "tool",
-            "args": {},
-        })
+        resp = await ac.post(
+            "/api/test",
+            json={
+                "name": "nonexistent.tool",
+                "kind": "tool",
+                "args": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         # Should fail because the tool doesn't exist

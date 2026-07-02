@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 # Adapter for the SDK's read_resource handler protocol
 # ---------------------------------------------------------------------------
 
+
 class _ReadResourceContent:
     """Adapter satisfying the SDK's ``read_resource`` return contract.
 
@@ -128,7 +129,7 @@ class MCPServer:
 
         @self.server.call_tool()
         async def _call_tool(name: str, arguments: dict[str, Any]) -> list[types.ContentBlock]:
-            result = self._coordinator.call_tool(name, arguments)
+            result = await self._coordinator.call_tool_async(name, arguments)
             if result["success"]:
                 return [
                     types.TextContent(
@@ -224,7 +225,11 @@ class MCPServer:
 
                 self._raise_not_found("Prompt", name, TOOL_NOT_FOUND)
             description = next(
-                (p.get("description") or "" for p in self._coordinator.list_prompts() if p["name"] == name),
+                (
+                    p.get("description") or ""
+                    for p in self._coordinator.list_prompts()
+                    if p["name"] == name
+                ),
                 "",
             )
             return types.GetPromptResult(

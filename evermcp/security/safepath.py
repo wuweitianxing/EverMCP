@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-class SecurityViolation(Exception):
+class SecurityViolation(Exception):  # noqa: N818
     """Raised when a path violates the security policy."""
 
     pass

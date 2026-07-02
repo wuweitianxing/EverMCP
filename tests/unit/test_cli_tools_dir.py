@@ -5,6 +5,7 @@ Priority (highest to lowest):
   2. $EVERMCP_TOOLS_DIR env var
   3. None (let ToolRegistry fall back to its built-in default)
 """
+
 from __future__ import annotations
 
 import os
@@ -19,6 +20,7 @@ from evermcp.cli import _resolve_tools_dir, main
 # ---------------------------------------------------------------------------
 # _resolve_tools_dir pure function
 # ---------------------------------------------------------------------------
+
 
 class TestResolveToolsDir:
     def test_cli_value_wins(self, tmp_path: Path) -> None:
@@ -58,6 +60,7 @@ class TestResolveToolsDir:
 # `evermcp list-tools --tools-dir PATH`
 # ---------------------------------------------------------------------------
 
+
 class TestListToolsCommand:
     def test_lists_examples(self) -> None:
         """Pointing at examples/tools/ should list demo.hello and io.read_file."""
@@ -84,12 +87,15 @@ class TestListToolsCommand:
         assert "No tools found" in result.output
 
     def test_default_dir_is_empty_tools_dir(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """No flag, no env: list-tools scans the default <repo>/tools/ (empty)."""
         # We can't change CWD reliably here without disturbing the whole test session,
         # so instead we monkeypatch ToolRegistry to capture the tools_dir it got.
         from evermcp.core import registry as reg_module
+
         captured: dict[str, object] = {}
 
         original_init = reg_module.ToolRegistry.__init__

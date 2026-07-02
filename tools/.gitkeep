@@ -1,0 +1,4 @@
+# This directory is for your local tools.
+# EverMCP does not ship any tools in this directory.
+# Use `--tools-dir` to point to your tool directory,
+# or copy examples from `examples/tools/`.

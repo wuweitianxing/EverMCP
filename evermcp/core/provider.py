@@ -22,10 +22,13 @@ import importlib.util
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from evermcp.core.capability import Capability, CapabilityKind
 from evermcp.core.tool import ToolContext, ToolFunc
+
+if TYPE_CHECKING:
+    from mcp.client.session import ClientSession
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,7 @@ _DEFAULT_TOOLS_DIR = Path(__file__).resolve().parent.parent.parent / "tools"
 # ---------------------------------------------------------------------------
 # CapabilityProvider — Protocol
 # ---------------------------------------------------------------------------
+
 
 @runtime_checkable
 class CapabilityProvider(Protocol):
@@ -73,6 +77,7 @@ class CapabilityProvider(Protocol):
 # ---------------------------------------------------------------------------
 # _ToolCapabilityAdapter — wraps a ToolFunc so it conforms to Capability
 # ---------------------------------------------------------------------------
+
 
 class _ToolCapabilityAdapter:
     """Adapts a ToolFunc to the Capability Protocol (kind=TOOL).
@@ -116,6 +121,7 @@ class _ToolCapabilityAdapter:
 # ---------------------------------------------------------------------------
 # LocalFilesystemProvider
 # ---------------------------------------------------------------------------
+
 
 class LocalFilesystemProvider:
     """Scans tools/<category>/<name>.py for @tool functions.
@@ -199,9 +205,7 @@ class LocalFilesystemProvider:
                 self._load_tool_file(py_file, category)
 
         descriptors = [t.descriptor() for t in self._tool_funcs.values()]
-        logger.info(
-            "Scanned %d tools from %s", len(descriptors), self._tools_dir
-        )
+        logger.info("Scanned %d tools from %s", len(descriptors), self._tools_dir)
         return descriptors
 
     def _load_tool_file(self, path: Path, category: str) -> None:
@@ -264,6 +268,7 @@ class LocalFilesystemProvider:
 # ---------------------------------------------------------------------------
 # InlineDeclarationProvider — form-declared capabilities (S1)
 # ---------------------------------------------------------------------------
+
 
 class InlineDeclarationProvider:
     """Provides capabilities declared via the gateway UI form.
@@ -450,6 +455,7 @@ class InlineDeclarationProvider:
 # Stub capability implementations for form-declared capabilities
 # ---------------------------------------------------------------------------
 
+
 def _parse_schema(schema_json: str) -> dict[str, Any]:
     """Parse a schema_json string into a dict, returning {} on failure."""
     import json
@@ -528,9 +534,7 @@ class _InlineResourceCapability:
         args: dict[str, Any],
         ctx: ToolContext | None = None,
     ) -> Any:
-        raise NotImplementedError(
-            f"Inline resource '{self.name}' is declared but not wired."
-        )
+        raise NotImplementedError(f"Inline resource '{self.name}' is declared but not wired.")
 
 
 class _InlinePromptCapability:
@@ -558,6 +562,197 @@ class _InlinePromptCapability:
         args: dict[str, Any],
         ctx: ToolContext | None = None,
     ) -> Any:
+        raise NotImplementedError(f"Inline prompt '{self.name}' is declared but not wired.")
+
+
+# ---------------------------------------------------------------------------
+# RemoteClientProvider — whole-server reverse registration (S2)
+# ---------------------------------------------------------------------------
+
+
+class RemoteToolError(Exception):
+    """A remote MCP tool returned ``isError: true``.
+
+    Raised by ``RemoteClientProvider.call`` so the Coordinator surfaces the
+    call as a failure (TOOL_EXCEPTION, -32003) with the remote error text,
+    instead of masking it as a successful result. Deliberately *not* a
+    ``RuntimeError`` so the Coordinator's ``_classify_exception`` cannot
+    mis-route it to TOOL_TIMEOUT when the remote error text happens to
+    contain the word "timeout".
+    """
+
+
+class _RemoteToolCapability:
+    """Adapts a remote MCP Tool descriptor to the Capability Protocol.
+
+    The gateway exposes remote tools under a namespace prefix so Agents can
+    distinguish them from local/inline capabilities:
+        remote.<client_id>.<tool_name>
+    """
+
+    kind = CapabilityKind.TOOL
+
+    def __init__(
+        self,
+        client_id: str,
+        tool_name: str,
+        description: str,
+        input_schema: dict[str, Any],
+    ) -> None:
+        self.client_id = client_id
+        self._tool_name = tool_name
+        self.name = f"remote.{client_id}.{tool_name}"
+        self.source = f"remote.{client_id}"
+        self.description = description
+        self.enabled = True
+        self._input_schema = input_schema
+
+    def descriptor(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self._input_schema,
+        }
+
+    async def call(
+        self,
+        args: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> Any:
+        """Placeholder for the Capability protocol; never invoked.
+
+        ``CapabilityRegistry.call`` routes remote tool calls through
+        ``RemoteClientProvider.call`` (which drives the underlying
+        ``ClientSession``), so this per-capability method is never reached.
+        It exists only to satisfy the ``Capability`` ABC; raising here guards
+        against any future caller that bypasses the provider-level path.
+        """
         raise NotImplementedError(
-            f"Inline prompt '{self.name}' is declared but not wired."
+            "Remote tool capabilities are invoked via "
+            "RemoteClientProvider.call (the registry routes at the provider "
+            "level); this placeholder is never reached."
         )
+
+
+class RemoteClientProvider:
+    """Provides capabilities from a remote client connected over WebSocket.
+
+    Each reverse-registered client gets one RemoteClientProvider instance.
+    It owns an ``mcp.client.session.ClientSession`` bridged over the WS, and
+    exposes the remote server's tools under the ``remote.<client_id>.``
+    namespace.
+
+    Health tracks the liveness of the underlying WebSocket. When the client
+    disconnects, ``health()`` returns False and the Coordinator removes the
+    provider from its registry.
+    """
+
+    def __init__(
+        self,
+        client_id: str,
+        session: ClientSession,
+        healthy: bool = True,
+    ) -> None:
+        self.client_id = client_id
+        self.source = f"remote.{client_id}"
+        self._session = session
+        self._healthy = healthy
+        # tool_name -> _RemoteToolCapability (original remote name, no prefix)
+        self._caps: dict[str, _RemoteToolCapability] = {}
+
+    async def refresh(self) -> None:
+        """Reload tool list from the remote client."""
+        try:
+            tools = await self._session.list_tools()
+        except Exception:
+            logger.exception("Failed to list remote tools for %s", self.source)
+            self._healthy = False
+            self._caps.clear()
+            return
+
+        self._caps.clear()
+        for tool in tools.tools:
+            self._caps[tool.name] = _RemoteToolCapability(
+                client_id=self.client_id,
+                tool_name=tool.name,
+                description=tool.description or "",
+                input_schema=tool.inputSchema or {"type": "object"},
+            )
+        logger.info(
+            "RemoteClientProvider %s refreshed with %d tools",
+            self.source,
+            len(self._caps),
+        )
+
+    # ----- CapabilityProvider contract -----
+
+    def list_capabilities(self) -> list[Capability]:
+        return list(self._caps.values())
+
+    def get(self, name: str) -> Capability | None:
+        """Look up by full prefixed name or original remote name."""
+        if name.startswith(f"remote.{self.client_id}."):
+            base = name.removeprefix(f"remote.{self.client_id}.")
+            return self._caps.get(base)
+        return self._caps.get(name)
+
+    async def call(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> Any:
+        """Call a remote tool by full prefixed name."""
+        base_name = name
+        prefix = f"remote.{self.client_id}."
+        if name.startswith(prefix):
+            base_name = name[len(prefix) :]
+
+        if base_name not in self._caps:
+            raise KeyError(name)
+
+        result = await self._session.call_tool(base_name, args)
+        payload = _mcp_call_tool_result_to_json(result)
+        # A remote tool may signal failure via isError: true (MCP's
+        # CallToolResult). Raise so the Coordinator reports success=False
+        # with the remote error text, instead of masking it as a success.
+        if getattr(result, "isError", False):
+            if isinstance(payload, str) and payload:
+                msg = payload
+            else:
+                msg = f"remote tool {base_name!r} reported an error: {payload}"
+            raise RemoteToolError(msg)
+        return payload
+
+    def health(self) -> bool:
+        return self._healthy
+
+    def mark_unhealthy(self) -> None:
+        """Called by the WS endpoint when the client disconnects."""
+        self._healthy = False
+        self._caps.clear()
+
+
+def _mcp_call_tool_result_to_json(result: Any) -> Any:
+    """Flatten an MCP CallToolResult to plain JSON.
+
+    TextContent becomes the text string; BlobContent becomes base64-ish text.
+    If there is exactly one content block, return it directly; otherwise return
+    a list. The caller (Coordinator) will JSON-serialize the return value.
+    """
+    if result is None:
+        return None
+
+    contents: list[Any] = []
+    for block in getattr(result, "content", []) or []:
+        block_type = getattr(block, "type", None)
+        if block_type == "text":
+            contents.append(getattr(block, "text", ""))
+        elif block_type == "image":
+            contents.append({"type": "image", "data": getattr(block, "data", None)})
+        else:
+            contents.append(block)
+
+    if len(contents) == 1:
+        return contents[0]
+    return contents

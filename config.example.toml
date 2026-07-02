@@ -16,13 +16,15 @@ filesystem_allowlist = ["~/data", "~/Downloads"]
 network_allowlist = ["github.com", "pypi.org"]
 denied_paths = ["~/.ssh", "~/.aws", "~/.config/gh"]
 
-# S0 — Gateway (Streamable HTTP transport)
+# Gateway — Streamable HTTP transport + Web UI
 # Bind to loopback by default; override only if you understand the security
-# implications (S2 introduces API key auth; S0 has none).
+# implications (remote clients authenticate via API key; see SECURITY.md).
 [gateway]
 host = "127.0.0.1"
 port = 8787
-# Reserved for S2 (auth); S0 always runs without a key check.
+# Require API key for HTTP MCP endpoints (default false for local use).
 require_key = false
 # SQLite path for the persistence layer (InlineCapability, Client, ApiKey, CallLog).
 db_url = "sqlite:///~/.evermcp/evermcp.db"
+# Per-call timeout (seconds) for remote client tools over WebSocket.
+remote_call_timeout_s = 60

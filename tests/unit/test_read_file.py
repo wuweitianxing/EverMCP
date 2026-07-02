@@ -9,6 +9,7 @@ Tests cover:
 - Default parameters
 - Binary file (errors='replace' fallback)
 """
+
 from __future__ import annotations
 
 import sys
@@ -19,6 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from evermcp.core.tool import ToolFunc
+from evermcp.security.safepath import SecurityViolation
 from examples.tools.io.read_file import read_file as _mod_read_file
 
 read_file: ToolFunc = _mod_read_file  # type: ignore[assignment]
@@ -27,6 +29,7 @@ read_file: ToolFunc = _mod_read_file  # type: ignore[assignment]
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def write_file(path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
     """Helper to write content to a file.
@@ -43,6 +46,7 @@ def write_file(path: Path, content: str | bytes, encoding: str = "utf-8") -> Non
 # ---------------------------------------------------------------------------
 # Basic read
 # ---------------------------------------------------------------------------
+
 
 class TestBasicRead:
     def test_read_existing_file(self, tmp_path: Path) -> None:
@@ -75,6 +79,7 @@ class TestBasicRead:
 # Errors
 # ---------------------------------------------------------------------------
 
+
 class TestErrors:
     def test_file_not_found(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError, match="File not found"):
@@ -98,7 +103,7 @@ class TestErrors:
 
         ctx = ToolContext(safe_path=sp)
 
-        with pytest.raises(Exception):  # SecurityViolation
+        with pytest.raises(SecurityViolation):
             read_file.fn(file_path=str(f), ctx=ctx)
 
     def test_security_allows_in_allowlist(self, tmp_path: Path) -> None:
@@ -121,6 +126,7 @@ class TestErrors:
 # ---------------------------------------------------------------------------
 # Truncation
 # ---------------------------------------------------------------------------
+
 
 class TestTruncation:
     def test_truncation_when_oversized(self, tmp_path: Path) -> None:
@@ -153,6 +159,7 @@ class TestTruncation:
 # Encoding
 # ---------------------------------------------------------------------------
 
+
 class TestEncoding:
     def test_utf8(self, tmp_path: Path) -> None:
         f = tmp_path / "u.txt"
@@ -176,7 +183,7 @@ class TestEncoding:
     def test_binary_file_with_errors_replace(self, tmp_path: Path) -> None:
         """Binary file read as utf-8 should not crash; uses errors='replace'."""
         f = tmp_path / "bin.bin"
-        f.write_bytes(b"\x00\xFF\xFE some bytes")
+        f.write_bytes(b"\x00\xff\xfe some bytes")
         result = read_file.fn(file_path=str(f), encoding="utf-8")
         # The content should be decoded with replacement chars (U+FFFD)
         assert "\ufffd" in result["content"] or result["content"]
@@ -186,10 +193,12 @@ class TestEncoding:
 # Default parameters
 # ---------------------------------------------------------------------------
 
+
 class TestDefaults:
     def test_default_max_bytes(self, tmp_path: Path) -> None:
         """Without explicit max_bytes, should use 1MB default."""
         from examples.tools.io.read_file import _DEFAULT_MAX_BYTES
+
         assert _DEFAULT_MAX_BYTES == 1024 * 1024
 
     def test_default_encoding(self, tmp_path: Path) -> None:

@@ -12,7 +12,6 @@ Endpoints:
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -72,7 +71,7 @@ async def get_tree(request: Request) -> dict[str, Any]:
               "category": "io",
               "children": [
                 {
-                  "name": "local:io.read_file",
+                  "name": "local.io.read_file",
                   "kind": "tool",
                   "enabled": true,
                   "health": "healthy"
@@ -95,6 +94,9 @@ async def get_tree(request: Request) -> dict[str, Any]:
                 "local": "本地文件",
                 "inline": "内联声明",
             }.get(source, source)
+            if source.startswith("remote."):
+                client_id = source.removeprefix("remote.")
+                label = f"远程: {client_id}"
             groups[source] = {"source": source, "label": label, "children": {}}
 
         for cap in provider.list_capabilities():
@@ -102,10 +104,13 @@ async def get_tree(request: Request) -> dict[str, Any]:
             parts = cap.name.split(".")
             if source == "local" and len(parts) >= 2:
                 category = parts[0]
-                full_name = f"local:{cap.name}"
+                full_name = f"local.{cap.name}"
             elif source == "inline":
                 category = "inline"
-                full_name = f"inline:{cap.name}"
+                full_name = f"inline.{cap.name}"
+            elif source.startswith("remote."):
+                category = "tools"
+                full_name = cap.name
             else:
                 category = "other"
                 full_name = cap.name
@@ -113,18 +118,22 @@ async def get_tree(request: Request) -> dict[str, Any]:
             if category not in groups[source]["children"]:
                 groups[source]["children"][category] = {"category": category, "children": []}
 
-            groups[source]["children"][category]["children"].append({
-                "name": full_name,
-                "kind": cap.kind.value,
-                "enabled": cap.enabled,
-                "health": "healthy" if provider.health() else "offline",
-                "description": cap.description,
-            })
+            groups[source]["children"][category]["children"].append(
+                {
+                    "name": full_name,
+                    "kind": cap.kind.value,
+                    "enabled": cap.enabled,
+                    "health": "healthy" if provider.health() else "offline",
+                    "description": cap.description,
+                }
+            )
 
     # Convert children dict to sorted list
     result_groups = []
     for source_data in groups.values():
-        children_list = sorted(source_data["children"].values(), key=lambda x: x.get("category", ""))
+        children_list = sorted(
+            source_data["children"].values(), key=lambda x: x.get("category", "")
+        )
         source_data["children"] = children_list
         result_groups.append(source_data)
 
@@ -141,20 +150,24 @@ async def list_capabilities(request: Request) -> dict[str, Any]:
         for cap in provider.list_capabilities():
             parts = cap.name.split(".")
             if provider.source == "local" and len(parts) >= 2:
-                full_name = f"local:{cap.name}"
+                full_name = f"local.{cap.name}"
             elif provider.source == "inline":
-                full_name = f"inline:{cap.name}"
+                full_name = f"inline.{cap.name}"
+            elif provider.source.startswith("remote."):
+                full_name = cap.name
             else:
                 full_name = cap.name
 
-            caps.append({
-                "name": full_name,
-                "kind": cap.kind.value,
-                "source": provider.source,
-                "enabled": cap.enabled,
-                "health": "healthy" if provider.health() else "offline",
-                "description": cap.description,
-            })
+            caps.append(
+                {
+                    "name": full_name,
+                    "kind": cap.kind.value,
+                    "source": provider.source,
+                    "enabled": cap.enabled,
+                    "health": "healthy" if provider.health() else "offline",
+                    "description": cap.description,
+                }
+            )
 
     return {"capabilities": caps}
 
@@ -184,7 +197,13 @@ async def create_capability(request: Request) -> dict[str, Any]:
     if provider is None:
         raise HTTPException(status_code=500, detail="InlineDeclarationProvider not found")
 
-    provider.add_capability(kind=kind, name=name, description=description, schema_json=schema_json, enabled=enabled)
+    provider.add_capability(
+        kind=kind,
+        name=name,
+        description=description,
+        schema_json=schema_json,
+        enabled=enabled,
+    )
 
     return {"status": "created", "name": name}
 
@@ -218,9 +237,9 @@ async def update_capability(request: Request) -> dict[str, Any]:
     if provider is None:
         raise HTTPException(status_code=500, detail="InlineDeclarationProvider not found")
 
-    # The UI sends names prefixed with "inline:" (see /api/tree); strip it to
+    # The UI sends names prefixed with "inline." (see /api/tree); strip it to
     # get the bare capability name stored in the DB.
-    base_name = name.replace("inline:", "", 1)
+    base_name = name.replace("inline.", "", 1)
 
     # Selective update — only fields present in the body are changed.
     updates: dict[str, Any] = {}
@@ -275,7 +294,7 @@ async def delete_capability(request: Request) -> dict[str, Any]:
     if provider is None:
         raise HTTPException(status_code=500, detail="InlineDeclarationProvider not found")
 
-    base_name = name.replace("inline:", "", 1)
+    base_name = name.replace("inline.", "", 1)
 
     if not provider.delete_capability(base_name):
         raise HTTPException(status_code=404, detail=f"Capability not found: {name}")
@@ -299,13 +318,11 @@ async def test_call(request: Request) -> dict[str, Any]:
     if not raw_name:
         raise HTTPException(status_code=400, detail="Missing 'name'")
 
-    # /api/tree prefixes capability names with "local:" / "inline:" to
+    # /api/tree prefixes capability names with "local." / "inline." to
     # disambiguate sources in the UI, but the registry routes by the bare
     # capability name. Strip the prefix before dispatching.
     base_name = (
-        raw_name.split(":", 1)[1]
-        if raw_name.startswith(("local:", "inline:"))
-        else raw_name
+        raw_name.split(".", 1)[1] if raw_name.startswith(("local.", "inline.")) else raw_name
     )
 
     coord = _get_coordinator(request)

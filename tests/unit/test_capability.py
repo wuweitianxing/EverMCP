@@ -1,4 +1,5 @@
 """Unit tests for the Capability protocol, @resource, and @prompt decorators."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,10 +15,10 @@ from evermcp.core.capability import (
 )
 from evermcp.core.tool import ToolFunc, tool
 
-
 # ---------------------------------------------------------------------------
 # CapabilityKind enum
 # ---------------------------------------------------------------------------
+
 
 class TestCapabilityKind:
     def test_members_present(self) -> None:
@@ -44,6 +45,7 @@ class TestCapabilityKind:
 # ---------------------------------------------------------------------------
 # @resource decorator
 # ---------------------------------------------------------------------------
+
 
 class TestResourceDecorator:
     def test_returns_resource_func(self) -> None:
@@ -118,6 +120,7 @@ class TestResourceDecorator:
 # ---------------------------------------------------------------------------
 # @prompt decorator
 # ---------------------------------------------------------------------------
+
 
 class TestPromptDecorator:
     def test_returns_prompt_func(self) -> None:
@@ -201,6 +204,7 @@ class TestPromptDecorator:
 # ToolFunc class attrs (unified Capability model)
 # ---------------------------------------------------------------------------
 
+
 class TestToolFuncCapabilityAttrs:
     def test_kind_is_tool(self) -> None:
         assert ToolFunc.kind == "tool"
@@ -225,6 +229,7 @@ class TestToolFuncCapabilityAttrs:
 # ---------------------------------------------------------------------------
 # Sanity: ResourceFunc.call return type (str)
 # ---------------------------------------------------------------------------
+
 
 class TestResourceFuncReturnType:
     @pytest.mark.asyncio

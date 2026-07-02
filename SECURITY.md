@@ -1,19 +1,20 @@
 # EverMCP Security Model
 
-**v0.2.0 范围**: EverMCP **不 ship 任何工具**——本文档描述**框架**的安全机制（SafePath、SafeURL、错误信封、ToolContext 注入），以及**写新工具**时必须遵守的检查清单。v2 跨设备调度会带来新风险（mTLS、设备鉴权），届时另文描述。
+**v0.3.0 范围**: EverMCP **不 ship 任何工具**——本文档描述**框架**的安全机制（SafePath、SafeURL、错误信封、ToolContext 注入、API key 认证），以及**写新工具**时必须遵守的检查清单。
 
 ## 信任边界
 
 | 边界 | 信任等级 | 说明 |
 |---|---|---|
-| **AI 客户端 → 协调器 (MCP)** | **不可信** | AI 的工具调用按用户输入处理，不假设是安全的 |
-| **协调器 → Worker** | **可信** | v1 同进程（in-process function call，无网络），v2 需 mTLS |
-| **Worker → Tool** | **可信** | 工具代码由开发者审计 |
-| **Tool → 系统** | **受限** | 受 SafePath / SafeURL 约束 |
+| **AI 客户端 → 网关 (MCP)** | **不可信** | AI 的工具调用按用户输入处理，不假设是安全的 |
+| **网关 → 本地工具** | **可信** | 进程内调用（in-process function call），无网络 |
+| **网关 → 远程客户端 (WS)** | **半可信** | 经 API key 鉴权；调用经 WS 下发，受 `remote_call_timeout_s` 约束 |
+| **工具 → 系统** | **受限** | 受 SafePath / SafeURL 约束 |
+| **浏览器 UI → 网关** | **半可信** | 本地 token 鉴权，默认仅监听 127.0.0.1 |
 
-**核心原则**: AI 客户端不可信，工具作者写的是受信代码但被不可信输入调用，所以所有接触外部资源的工具函数必须过安全 helper。
+**核心原则**: AI 客户端不可信，工具作者写的是受信代码但被不可信输入调用，所以所有接触外部资源的工具函数必须过安全 helper。远程客户端经 API key 鉴权后视为半可信，但其返回值仍按不可信处理。
 
-## v1 安全机制
+## 安全机制
 
 ### 1. Subprocess argv 注入防御
 
@@ -33,7 +34,7 @@ subprocess.run(f"ffmpeg -i {input_path} {output_path}", shell=True)  # shell inj
 - 路径作为单个 argv 元素传入，由 OS 解释
 - 工具启动 FFmpeg 之前必须 `ctx.safe_path.validate(input_path)`（如果配置了 filesystem_allowlist）
 
-实装：`tools/media/transcode.py:200-235` — FFmpeg 调用纯 argv 列表。
+实装：此模式在框架中已定义，请参考示例实现。
 
 ### 2. 文件系统: SafePath
 
@@ -60,7 +61,7 @@ filesystem_allowlist = ["~/data", "~/Downloads"]
 denied_paths = ["~/.ssh", "~/.aws", "~/.config/gh"]
 ```
 
-实装：`evermcp/security/safepath.py` + `tools/io/read_file.py`。
+实装：`evermcp/security/safepath.py` + `examples/tools/io/read_file.py`。
 
 ### 3. 网络: SafeURL (SSRF 防御)
 
@@ -93,7 +94,7 @@ network_allowlist = ["github.com", "pypi.org"]  # 空 = 仅默认拒绝
 
 实装：`evermcp/security/safeurl.py` + 示例见 `examples/tools/io/read_file.py`（FS 工具的 SafePath 用法）。
 
-### 4. v1 SSRF 已知限制（DNS rebinding）
+### 4. SSRF 已知限制（DNS rebinding）
 
 **当前实现只检查 URL 字面 hostname，不解析后检查 IP**。
 
@@ -103,7 +104,7 @@ http://attacker.com/  →  首次 DNS 解析 → 1.2.3.4 (安全)
                    →  工具内部 httpx 重新解析 → 127.0.0.1 (恶意)
 ```
 
-**v1 接受这个风险**（DESIGN.md §Reviewer Concerns 提到）。v2 强化方向：在 `SafeURL.validate()` 里先解析 IP，把解析结果也跑一次 default-deny。
+**当前接受这个风险**（DESIGN.md §Reviewer Concerns 提到）。S3 强化方向：在 `SafeURL.validate()` 里先解析 IP，把解析结果也跑一次 default-deny。
 
 ### 5. 二进制发现（外部依赖）
 
@@ -136,17 +137,35 @@ Coordinator 给每个工具调用构造 `ToolContext`，里面装好：
 
 工具作者应该 `ctx.safe_path.validate(...)` 而不是自己新建 SafePath — 让配置真正生效。
 
-## v1 **不**做的事
+### 8. API key 与 UI token 鉴权（S2）
+
+网关化后新增两条鉴权边界：
+
+**远程客户端 WS 反向注册**：
+- 客户端用 API key 建立 WS：`ws://gateway/ws?token=<api_key>`。
+- API key 存 hash（`hash_api_key`），不存明文；可吊销（`revoked` 标记）。
+- key 绑定 scope（如 `ws:connect`、`admin`），握手时校验。
+- 实装：`evermcp/security/auth.py`、`evermcp/protocol/ws_channel.py`。
+
+**Web UI 本地 token**：
+- `--ui` 模式首次启动生成随机 token，浏览器 cookie 携带。
+- `TokenAuthMiddleware` 保护 `/api/*`（admin 端点 `/api/clients`、`/api/keys`、`/api/logs` 例外，由 `require_api_key_http` 依赖做 API key 认证）。
+- 默认仅监听 `127.0.0.1`；暴露外网需自担风险。
+
+**Agent MCP 调用**：
+- stdio 不鉴权（进程隔离是边界）。
+- HTTP 端点可选 API key（配置开关 `http_require_key`，默认 false 本地）。
+
+## 当前不做的事
 
 | 不做 | 原因 |
 |---|---|
-| AI 客户端 ↔ 协调器鉴权 | stdio MCP 假设本地用户，进程隔离是边界 |
-| 工具沙箱隔离 | 依赖 OS 用户权限；v1 工具代码受信 |
-| Worker 间 mTLS | v1 是单进程，无网络 |
-| DNS rebinding 防护 | 见 §4，v1 接受风险 |
-| 工具返回值的 schema 验证 | v1 信任工具作者写对返回 dict；v2 加 pydantic model |
-| Rate limiting | stdio MCP 下 AI 客户端重试受其自身控制 |
-| 审计日志 | 当前只有 stderr JSON log；v2 加结构化 audit trail |
+| stdio MCP 鉴权 | 假设本地用户，进程隔离是边界 |
+| 工具沙箱隔离 | 依赖 OS 用户权限；工具代码受信 |
+| DNS rebinding 防护 | 见 §4，当前接受风险（S3 可选强化） |
+| 工具返回值的 schema 验证 | 信任工具作者写对返回 dict |
+| Rate limiting | MCP 客户端重试受其自身控制 |
+| 多租户 / RBAC | API key + 本地 token 已够用 |
 
 ## 加新工具时的安全检查清单
 
@@ -163,4 +182,4 @@ Coordinator 给每个工具调用构造 `ToolContext`，里面装好：
 
 ## 报告安全问题
 
-发现 v1 安全问题请开 GitHub issue（或发邮件给 maintainer），标 `security` label。v1 阶段我们没有正式的 coordinated disclosure 流程。
+发现问题请开 GitHub issue（或发邮件给 maintainer），标 `security` label。当前阶段我们没有正式的 coordinated disclosure 流程。

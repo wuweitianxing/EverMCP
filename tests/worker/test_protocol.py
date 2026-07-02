@@ -33,6 +33,7 @@ from evermcp.workers.local import CapabilityDescriptor, LocalWorker, ToolResult
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def tools_dir(tmp_path: Path) -> Path:
     """Create a temp tools dir with a few test tools exercising different code paths."""
@@ -40,42 +41,50 @@ def tools_dir(tmp_path: Path) -> Path:
     d.mkdir()
 
     (d / "ok").mkdir()
-    (d / "ok" / "echo.py").write_text(textwrap.dedent("""\
+    (d / "ok" / "echo.py").write_text(
+        textwrap.dedent("""\
         from evermcp.core.tool import tool
 
         @tool(description="Echo the input back")
         def echo(msg: str) -> dict:
             return {"echoed": msg, "length": len(msg)}
-    """))
+    """)
+    )
 
     (d / "fail").mkdir()
-    (d / "fail" / "raise_tool.py").write_text(textwrap.dedent("""\
+    (d / "fail" / "raise_tool.py").write_text(
+        textwrap.dedent("""\
         from evermcp.core.tool import tool
 
         @tool(description="Always raises an exception")
         def always_fail(reason: str) -> dict:
             raise RuntimeError(f"intentional failure: {reason}")
-    """))
+    """)
+    )
 
     (d / "bad").mkdir()
-    (d / "bad" / "non_serializable.py").write_text(textwrap.dedent("""\
+    (d / "bad" / "non_serializable.py").write_text(
+        textwrap.dedent("""\
         from pathlib import Path
         from evermcp.core.tool import tool
 
         @tool(description="Returns a non-JSON-serializable value")
         def bad_return() -> dict:
             return {"path": Path("/tmp/foo")}  # Path is not JSON-serializable
-    """))
+    """)
+    )
 
     (d / "sec").mkdir()
-    (d / "sec" / "violate.py").write_text(textwrap.dedent("""\
+    (d / "sec" / "violate.py").write_text(
+        textwrap.dedent("""\
         from evermcp.security.safepath import SecurityViolation
         from evermcp.core.tool import tool
 
         @tool(description="Raises a SecurityViolation")
         def violate(target: str) -> dict:
             raise SecurityViolation(f"blocked: {target}")
-    """))
+    """)
+    )
 
     return d
 
@@ -95,6 +104,7 @@ def worker(registry: ToolRegistry) -> LocalWorker:
 # ---------------------------------------------------------------------------
 # list_tools — returns ToolDescriptor shape (DESIGN.md §Worker Protocol)
 # ---------------------------------------------------------------------------
+
 
 class TestListTools:
     def test_returns_list_of_descriptors(self, worker: LocalWorker) -> None:
@@ -120,6 +130,7 @@ class TestListTools:
 # ---------------------------------------------------------------------------
 # call_tool — success
 # ---------------------------------------------------------------------------
+
 
 class TestCallToolSuccess:
     def test_returns_tool_result_envelope(self, worker: LocalWorker) -> None:
@@ -164,6 +175,7 @@ class TestCallToolSuccess:
 # call_tool — TOOL_NOT_FOUND (-32001)
 # ---------------------------------------------------------------------------
 
+
 class TestCallToolNotFound:
     def test_unknown_tool_returns_error(self, worker: LocalWorker) -> None:
         result = worker.call_tool("nonexistent.tool", {}, call_id="x")
@@ -185,6 +197,7 @@ class TestCallToolNotFound:
 # ---------------------------------------------------------------------------
 # call_tool — TOOL_EXCEPTION (-32003)
 # ---------------------------------------------------------------------------
+
 
 class TestCallToolException:
     def test_runtime_error_wrapped(self, worker: LocalWorker) -> None:
@@ -209,6 +222,7 @@ class TestCallToolException:
 # call_tool — TOOL_TIMEOUT (-32002)
 # ---------------------------------------------------------------------------
 
+
 class TestCallToolTimeout:
     """LocalWorker detects `RuntimeError("...timeout...")` and routes to TOOL_TIMEOUT."""
 
@@ -216,17 +230,20 @@ class TestCallToolTimeout:
         """Create a tool that raises a timeout-style RuntimeError."""
         d = tmp_path / "tools"
         (d / "slow").mkdir(parents=True)
-        (d / "slow" / "stuck.py").write_text(textwrap.dedent("""\
+        (d / "slow" / "stuck.py").write_text(
+            textwrap.dedent("""\
             from evermcp.core.tool import tool
 
             @tool(description="Takes too long")
             def stuck() -> dict:
                 raise RuntimeError("operation timeout after 600s")
-        """))
+        """)
+        )
         return d
 
     def test_runtime_error_with_timeout_string_routes_to_tool_timeout(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         tools_dir = self._make_timeout_tool(tmp_path)
         registry = ToolRegistry(tools_dir=tools_dir)
@@ -242,18 +259,21 @@ class TestCallToolTimeout:
         assert "600s" in err["message"]
 
     def test_runtime_error_without_timeout_keyword_routes_to_tool_exception(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """A plain RuntimeError (no 'timeout' substring) still goes to TOOL_EXCEPTION."""
         d = tmp_path / "tools"
         (d / "oops").mkdir(parents=True)
-        (d / "oops" / "boom.py").write_text(textwrap.dedent("""\
+        (d / "oops" / "boom.py").write_text(
+            textwrap.dedent("""\
             from evermcp.core.tool import tool
 
             @tool(description="Kaboom")
             def boom() -> dict:
                 raise RuntimeError("kaboom")
-        """))
+        """)
+        )
         registry = ToolRegistry(tools_dir=d)
         registry.scan()
         worker = LocalWorker(registry)
@@ -263,18 +283,21 @@ class TestCallToolTimeout:
         assert result["error"]["code"] == TOOL_EXCEPTION
 
     def test_timeout_detection_is_case_insensitive(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """The substring check is case-insensitive ('Timeout' / 'TIMEOUT' both match)."""
         d = tmp_path / "tools"
         (d / "slow").mkdir(parents=True)
-        (d / "slow" / "uppercase.py").write_text(textwrap.dedent("""\
+        (d / "slow" / "uppercase.py").write_text(
+            textwrap.dedent("""\
             from evermcp.core.tool import tool
 
             @tool(description="Has 'Timeout' (capital T) in message")
             def uppercase() -> dict:
                 raise RuntimeError("Connection TIMEOUT after 30s")
-        """))
+        """)
+        )
         registry = ToolRegistry(tools_dir=d)
         registry.scan()
         worker = LocalWorker(registry)
@@ -287,6 +310,7 @@ class TestCallToolTimeout:
 # ---------------------------------------------------------------------------
 # call_tool — TOOL_INVALID_OUTPUT (-32004)
 # ---------------------------------------------------------------------------
+
 
 class TestCallToolInvalidOutput:
     def test_non_json_serializable_return_wrapped(self, worker: LocalWorker) -> None:
@@ -304,6 +328,7 @@ class TestCallToolInvalidOutput:
 # get_capabilities — CapabilityDescriptor shape
 # ---------------------------------------------------------------------------
 
+
 class TestGetCapabilities:
     def test_returns_capability_descriptor(self, worker: LocalWorker) -> None:
         caps = worker.get_capabilities()
@@ -313,13 +338,20 @@ class TestGetCapabilities:
         """All CapabilityDescriptor fields per DESIGN.md §Schema."""
         caps = worker.get_capabilities()
         expected_fields = {
-            "cpu_cores", "memory_total_mb", "memory_free_mb", "disk_free_gb",
-            "ffmpeg_encoders", "gpu_available", "npu_available", "platform",
+            "cpu_cores",
+            "memory_total_mb",
+            "memory_free_mb",
+            "disk_free_gb",
+            "ffmpeg_encoders",
+            "gpu_available",
+            "npu_available",
+            "platform",
         }
         assert expected_fields.issubset(caps.keys())
 
     def test_platform_matches_system(self, worker: LocalWorker) -> None:
         import platform as _p
+
         caps = worker.get_capabilities()
         assert caps["platform"] == _p.system().lower()
 
@@ -339,6 +371,7 @@ class TestGetCapabilities:
 # ---------------------------------------------------------------------------
 # Error code constants — pin the contract
 # ---------------------------------------------------------------------------
+
 
 class TestErrorCodeConstants:
     """Per DESIGN.md §Error Model error codes -32001..-32005."""

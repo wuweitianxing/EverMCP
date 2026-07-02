@@ -28,6 +28,7 @@ from evermcp.security.config import Config
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def tools_dir(tmp_path: Path) -> Path:
     """Create a temp tools dir with a representative set of tools."""
@@ -35,29 +36,35 @@ def tools_dir(tmp_path: Path) -> Path:
     d.mkdir()
 
     (d / "demo").mkdir()
-    (d / "demo" / "greet.py").write_text(textwrap.dedent("""\
+    (d / "demo" / "greet.py").write_text(
+        textwrap.dedent("""\
         from evermcp.core.tool import tool
 
         @tool(description="Greet someone by name")
         def greet(name: str) -> dict:
             return {"greeting": f"hello, {name}"}
-    """))
+    """)
+    )
 
-    (d / "demo" / "add.py").write_text(textwrap.dedent("""\
+    (d / "demo" / "add.py").write_text(
+        textwrap.dedent("""\
         from evermcp.core.tool import tool
 
         @tool(description="Add two integers")
         def add(a: int, b: int) -> dict:
             return {"sum": a + b}
-    """))
+    """)
+    )
 
-    (d / "demo" / "boom.py").write_text(textwrap.dedent("""\
+    (d / "demo" / "boom.py").write_text(
+        textwrap.dedent("""\
         from evermcp.core.tool import tool
 
         @tool(description="Explodes on demand")
         def boom() -> dict:
             raise RuntimeError("kaboom")
-    """))
+    """)
+    )
 
     return d
 
@@ -75,6 +82,7 @@ def coordinator(tools_dir: Path) -> Coordinator:
 # ---------------------------------------------------------------------------
 # initialize + list_tools
 # ---------------------------------------------------------------------------
+
 
 class TestInitializeAndList:
     def test_initialize_scans_tools(self, coordinator: Coordinator) -> None:
@@ -101,6 +109,7 @@ class TestInitializeAndList:
 # ---------------------------------------------------------------------------
 # call_tool — full Coordinator → Worker → @tool path
 # ---------------------------------------------------------------------------
+
 
 class TestCallToolRoundTrip:
     def test_successful_call(self, coordinator: Coordinator) -> None:
@@ -134,6 +143,7 @@ class TestCallToolRoundTrip:
 # get_capabilities
 # ---------------------------------------------------------------------------
 
+
 class TestGetCapabilities:
     def test_returns_capability_dict(self, coordinator: Coordinator) -> None:
         caps = coordinator.get_capabilities()
@@ -147,17 +157,20 @@ class TestGetCapabilities:
 # Coordinator with Config (verify SafeURL/SafePath injection)
 # ---------------------------------------------------------------------------
 
+
 class TestCoordinatorWithConfig:
     def test_config_filesystem_allowlist_propagates_to_ctx(self, tools_dir: Path) -> None:
-        """Config.filesystem_allowlist should be picked up by Coordinator and made available via safe_path."""
+        """filesystem_allowlist propagates to Coordinator's safe_path."""
         cfg = Config(filesystem_allowlist=[str(tools_dir)])
         registry = ToolRegistry(tools_dir=tools_dir)
         coord = Coordinator(registry=registry, config=cfg)
         coord.initialize()
         try:
             assert coord.safe_path is not None
-            assert any(tools_dir.resolve() in ap.parents or ap == tools_dir.resolve()
-                       for ap in coord.safe_path.allowlist)
+            assert any(
+                tools_dir.resolve() in ap.parents or ap == tools_dir.resolve()
+                for ap in coord.safe_path.allowlist
+            )
         finally:
             coord.shutdown()
 
@@ -180,6 +193,7 @@ class TestCoordinatorWithConfig:
         import pytest
 
         from evermcp.security.safepath import SecurityViolation
+
         with pytest.raises(SecurityViolation):
             su.validate("http://127.0.0.1/")
 
@@ -195,6 +209,7 @@ class TestCoordinatorWithConfig:
 # ---------------------------------------------------------------------------
 # ToolContext injection — verify safe_url/safe_path reach tools
 # ---------------------------------------------------------------------------
+
 
 class TestToolContextInjection:
     def test_safe_path_injected_into_read_file_tool(self, tmp_path: Path) -> None:

@@ -188,7 +188,7 @@ class LocalWorker:
                 cpu_cores=psutil.cpu_count(logical=False) or 0,
                 memory_total_mb=mem.total // (1024 * 1024),
                 memory_free_mb=mem.available // (1024 * 1024),
-                disk_free_gb=round(disk.free / (1024 ** 3), 1),
+                disk_free_gb=round(disk.free / (1024**3), 1),
                 ffmpeg_encoders=self._detect_ffmpeg_encoders(),
                 gpu_available=self._detect_gpu(),
                 npu_available=False,
@@ -227,9 +227,8 @@ class LocalWorker:
         """Simple GPU detection (v1: basic check)."""
         try:
             import subprocess
-            result = subprocess.run(
-                ["nvidia-smi"], capture_output=True, timeout=5
-            )
+
+            result = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
             return result.returncode == 0
         except Exception:
             return False

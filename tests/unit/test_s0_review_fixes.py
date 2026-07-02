@@ -7,6 +7,7 @@ fix has regressed and must be re-applied.
 Not exhaustive — they cover the surface area that was actually changed
 by the fixes, not the wider feature.
 """
+
 from __future__ import annotations
 
 import sys
@@ -15,17 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from evermcp.core.capability import CapabilityKind, PromptFunc, ResourceFunc
 from evermcp.core.registry import ToolRegistry
 from evermcp.core.tool import (
     SECURITY_VIOLATION,
     TOOL_NOT_FOUND,
     TOOL_TIMEOUT,
     ToolContext,
-    tool,
 )
 from evermcp.protocol.coordinator import Coordinator
-
 
 # ---------------------------------------------------------------------------
 # Fix #1: async error envelope must classify SecurityViolation / timeout
@@ -181,6 +179,7 @@ class TestMcpHandlerKeyErrorTranslation:
             handler_fn = handler.get(ReadResourceRequest)
             if handler_fn is None:
                 pytest.skip("SDK layout differs; skipping KeyError-path test")
+
             # Synthesize a request object — the handler reads .params.uri.
             class _Req:
                 def __init__(self, uri):

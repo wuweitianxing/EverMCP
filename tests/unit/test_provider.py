@@ -1,4 +1,5 @@
 """Unit tests for LocalFilesystemProvider."""
+
 from __future__ import annotations
 
 import textwrap
@@ -9,10 +10,10 @@ import pytest
 from evermcp.core.capability import CapabilityKind
 from evermcp.core.provider import LocalFilesystemProvider
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def tools_dir(tmp_path: Path) -> Path:
@@ -43,6 +44,7 @@ def empty_tools_dir(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # list_capabilities / get
 # ---------------------------------------------------------------------------
+
 
 class TestListCapabilities:
     def test_empty_dir_returns_empty_list(self, empty_tools_dir: Path) -> None:
@@ -95,6 +97,7 @@ class TestGet:
 # health
 # ---------------------------------------------------------------------------
 
+
 class TestHealth:
     def test_health_true(self, tools_dir: Path) -> None:
         provider = LocalFilesystemProvider(tools_dir=tools_dir)
@@ -110,6 +113,7 @@ class TestHealth:
 # ---------------------------------------------------------------------------
 # call (async)
 # ---------------------------------------------------------------------------
+
 
 class TestCall:
     @pytest.mark.asyncio
@@ -138,6 +142,7 @@ class TestCall:
 # start_watching — must not raise even without watchdog
 # ---------------------------------------------------------------------------
 
+
 class TestStartWatching:
     def test_start_watching_does_not_raise(self, tools_dir: Path) -> None:
         """Even if watchdog is missing, start_watching() must swallow ImportError."""
@@ -152,6 +157,7 @@ class TestStartWatching:
 # ---------------------------------------------------------------------------
 # tools_dir property + source tag
 # ---------------------------------------------------------------------------
+
 
 class TestMetadata:
     def test_tools_dir_reflects_constructor(self, tools_dir: Path) -> None:

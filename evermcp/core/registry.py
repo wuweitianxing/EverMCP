@@ -64,6 +64,7 @@ TOOLS_DIR = Path(__file__).resolve().parent.parent.parent / "tools"
 # CapabilityRegistry — multi-provider registry (S0 core abstraction)
 # ---------------------------------------------------------------------------
 
+
 class CapabilityRegistry:
     """Aggregates capabilities from one or more `CapabilityProvider`s.
 
@@ -150,13 +151,36 @@ class CapabilityRegistry:
 
     # ----- lookup & invocation -----
 
-    def get(self, name: str) -> Capability | None:
-        """First-match lookup across providers. Returns the raw Capability."""
+    def get_capability(self, name: str) -> Capability | None:
+        """First-match ``Capability`` lookup across all providers.
+
+        Unlike :meth:`get`, this is **not** overridden by :class:`ToolRegistry`
+        and therefore always traverses every provider (including remote
+        clients), returning the raw :class:`Capability` with its ``source``
+        attribute intact. Use this when you need provider/source metadata —
+        for example the Coordinator's remote-call timeout branch, which must
+        read ``cap.source`` to decide whether to apply
+        ``remote_call_timeout_s``.
+
+        Use :meth:`get` for the legacy ``ToolFunc``-returning contract that
+        :class:`ToolRegistry` keeps for the synchronous ``LocalWorker`` path.
+        """
         for provider in self._providers:
             cap = provider.get(name)
             if cap is not None:
                 return cap
         return None
+
+    def get(self, name: str) -> Capability | None:
+        """First-match lookup across providers. Returns the raw Capability.
+
+        .. note::
+            :class:`ToolRegistry` overrides this to return a bare ``ToolFunc``
+            for the ``LocalWorker`` sync path; callers that need the raw
+            ``Capability`` (with ``source``) across all providers should use
+            :meth:`get_capability` instead.
+        """
+        return self.get_capability(name)
 
     def get_tool_func(self, name: str) -> ToolFunc | None:
         """Back-compat accessor: return the underlying ToolFunc, if any provider exposes one.
@@ -206,9 +230,7 @@ class CapabilityRegistry:
                 return content, mime_type
         raise KeyError(uri)
 
-    async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> str:
+    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> str:
         """Render a Prompt by name with the given arguments (async)."""
         for cap in self.list_capabilities(CapabilityKind.PROMPT):
             if cap.name == name:
@@ -250,9 +272,7 @@ class CapabilityRegistry:
             try:
                 results = scan_fn()
             except Exception:
-                logger.exception(
-                    "Provider %s raised in scan()", getattr(provider, "source", "?")
-                )
+                logger.exception("Provider %s raised in scan()", getattr(provider, "source", "?"))
                 continue
             out.extend(results)
         return out
@@ -309,6 +329,7 @@ class CapabilityRegistry:
 # ToolRegistry — back-compat subclass (v0.2.0 API preserved)
 # ---------------------------------------------------------------------------
 
+
 class ToolRegistry(CapabilityRegistry):
     """Back-compat `ToolRegistry` — auto-wires a single LocalFilesystemProvider.
 
@@ -354,14 +375,6 @@ class ToolRegistry(CapabilityRegistry):
         # resolves to it. If the name is not found, return None (preserving
         # the legacy contract that LocalWorker checks via `if tool_func is None`).
         return self.get_tool_func(name)
-
-    def list_tools(self) -> list[ToolDescriptor]:
-        """Back-compat: return raw ToolDescriptor dicts from the local provider.
-
-        Equivalent to the v0.2.0 method: iterates `_tools.values()` and calls
-        `descriptor()` on each. Implementation now lives on the provider.
-        """
-        return self._local_provider.list_tools()
 
     def scan(self) -> list[ToolDescriptor]:
         """Back-compat: scan via the local provider and return raw descriptors.

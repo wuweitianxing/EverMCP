@@ -4,9 +4,11 @@ Spawns HTTPServer in a background task on a fixed test port (18787), connects
 with httpx.AsyncClient using MCP's stateless + json_response mode for the
 simplest smoke, and verifies tools/list and tools/call round-trips.
 """
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import textwrap
 from collections.abc import AsyncIterator
@@ -19,10 +21,10 @@ from evermcp.core.registry import ToolRegistry
 from evermcp.protocol.coordinator import Coordinator
 from evermcp.protocol.http_server import HTTPServer
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _free_port() -> int:
     """Ask the OS for a free TCP port on loopback.
@@ -55,6 +57,7 @@ def _make_tools_dir(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 async def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
     """Poll the TCP port until uvicorn accepts connections or timeout.
@@ -105,16 +108,12 @@ async def http_server(tmp_path: Path) -> AsyncIterator[str]:
 
     # Wait until either the port is open or the server task crashed.
     poll_task = asyncio.create_task(_wait_for_port("127.0.0.1", port))
-    done, _ = await asyncio.wait(
-        {poll_task, task}, return_when=asyncio.FIRST_COMPLETED
-    )
+    done, _ = await asyncio.wait({poll_task, task}, return_when=asyncio.FIRST_COMPLETED)
     if task in done and not poll_task.done():
         # Server task died before the port opened — surface the cause.
         poll_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await poll_task
-        except asyncio.CancelledError:
-            pass
         # Re-raise whatever killed the server. asyncio.gather would wrap
         # it in a Task exception; calling .result() unwraps it cleanly.
         try:
@@ -128,10 +127,8 @@ async def http_server(tmp_path: Path) -> AsyncIterator[str]:
     else:
         # Port is open; cancel the poll task.
         poll_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await poll_task
-        except asyncio.CancelledError:
-            pass
 
     url = f"http://127.0.0.1:{port}/mcp"
     try:
@@ -155,6 +152,7 @@ async def http_server(tmp_path: Path) -> AsyncIterator[str]:
 # ---------------------------------------------------------------------------
 # Smoke tests
 # ---------------------------------------------------------------------------
+
 
 class TestToolsList:
     @pytest.mark.asyncio

@@ -13,15 +13,23 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from evermcp.protocol.coordinator import Coordinator
+from evermcp.security.auth import require_api_key_http
 
 logger = logging.getLogger(__name__)
+
+# S2 admin REST endpoints authenticate via an admin-scope API key (enforced
+# by the ``require_api_key_http`` dependency on the admin router) rather than
+# the local UI token. The middleware lets these paths through so the
+# dependency can perform its own auth — otherwise a valid API key would be
+# rejected here because it is not the UI token.
+_ADMIN_API_PREFIXES = ("/api/clients", "/api/keys", "/api/logs")
 
 # ---------------------------------------------------------------------------
 # Local token management
@@ -55,6 +63,11 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     paths are also passed through. Only ``/api/*`` is gated, reading the
     token from the ``Authorization: Bearer <token>`` header or the
     ``evermcp_token`` cookie.
+
+    S2 admin endpoints (``/api/clients``, ``/api/keys``, ``/api/logs``) are
+    exempted: they authenticate via an admin-scope API key enforced by the
+    ``require_api_key_http`` dependency on the admin router, so the
+    middleware must let them through to that dependency.
     """
 
     def __init__(self, app: Any, token: str) -> None:
@@ -68,6 +81,11 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         # Only /api/* is token-gated.
         if not path.startswith("/api/"):
+            return await call_next(request)
+        # S2 admin endpoints use API-key auth (require_api_key_http dependency
+        # on the admin router), not the local UI token — let them through so
+        # the dependency can enforce admin-scope API-key auth.
+        if path.startswith(_ADMIN_API_PREFIXES):
             return await call_next(request)
         # Read token: prefer Authorization header, fall back to cookie.
         auth = request.headers.get("authorization", "")
@@ -131,6 +149,17 @@ def create_app(coordinator: Coordinator, require_token: bool = False) -> FastAPI
 
     register_routes(app)
 
+    # S2 admin routes (clients, API keys, call logs). All admin endpoints
+    # require an API key with the ``admin`` scope.
+    from evermcp.protocol.rest_api import router as admin_router
+
+    app.include_router(admin_router, dependencies=[Depends(require_api_key_http)])
+
+    # S2 WebSocket reverse-registration endpoint.
+    from evermcp.protocol.ws_channel import build_ws_router
+
+    app.include_router(build_ws_router(coordinator))
+
     # Serve static frontend files
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
@@ -156,9 +185,7 @@ def create_app(coordinator: Coordinator, require_token: bool = False) -> FastAPI
         the frontend's ``apiHeaders()`` helper can read
         ``window.EVERMCP_TOKEN`` and attach it to every fetch call.
         """
-        html = (Path(__file__).parent / "static" / "index.html").read_text(
-            encoding="utf-8"
-        )
+        html = (Path(__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
         if require_token:
             token = _get_or_create_token()
             inject = f'<script>window.EVERMCP_TOKEN = "{token}";</script>'

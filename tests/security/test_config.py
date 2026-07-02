@@ -12,6 +12,7 @@ from evermcp.security.config import Config
 # Defaults
 # ---------------------------------------------------------------------------
 
+
 class TestDefaults:
     def test_default_log_level_is_info(self) -> None:
         cfg = Config()
@@ -46,6 +47,7 @@ class TestDefaults:
 # Constructor overrides
 # ---------------------------------------------------------------------------
 
+
 class TestConstructor:
     def test_custom_log_level(self) -> None:
         cfg = Config(log_level="debug")
@@ -77,6 +79,7 @@ class TestConstructor:
 # TOML loading
 # ---------------------------------------------------------------------------
 
+
 class TestTomlLoading:
     def test_load_from_toml_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Config.load() reads a TOML file and overrides defaults."""
@@ -84,15 +87,15 @@ class TestTomlLoading:
         config_dir.mkdir()
         config_file = config_dir / "config.toml"
         config_file.write_text(
-            '[general]\n'
+            "[general]\n"
             'log_level = "DEBUG"\n'
             'log_file = "~/test.log"\n'
-            '\n'
-            '[ffmpeg]\n'
+            "\n"
+            "[ffmpeg]\n"
             'binary = "/usr/local/bin/ffmpeg"\n'
-            'default_timeout_s = 120\n'
-            '\n'
-            '[security]\n'
+            "default_timeout_s = 120\n"
+            "\n"
+            "[security]\n"
             'filesystem_allowlist = ["~/data", "~/Downloads"]\n'
             'network_allowlist = ["github.com", "pypi.org"]\n'
             'denied_paths = ["~/.ssh", "~/.aws"]\n',
@@ -120,8 +123,7 @@ class TestTomlLoading:
         """A TOML file with only some fields overrides only those fields."""
         config_file = tmp_path / "partial.toml"
         config_file.write_text(
-            '[ffmpeg]\n'
-            'binary = "ffmpeg-7"\n',
+            '[ffmpeg]\nbinary = "ffmpeg-7"\n',
             encoding="utf-8",
         )
 
@@ -142,6 +144,7 @@ class TestTomlLoading:
 # ---------------------------------------------------------------------------
 # Environment variable overrides
 # ---------------------------------------------------------------------------
+
 
 class TestEnvOverrides:
     def test_env_log_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,9 +189,7 @@ class TestEnvOverrides:
         """Env vars take precedence over TOML values."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[ffmpeg]\n'
-            'binary = "ffmpeg-from-toml"\n'
-            'default_timeout_s = 100\n',
+            '[ffmpeg]\nbinary = "ffmpeg-from-toml"\ndefault_timeout_s = 100\n',
             encoding="utf-8",
         )
 
@@ -205,19 +206,22 @@ class TestEnvOverrides:
 # Full load chain: defaults → TOML → env
 # ---------------------------------------------------------------------------
 
+
 class TestFullLoadChain:
-    def test_defaults_then_toml_then_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_defaults_then_toml_then_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify the full override chain: defaults → TOML → env vars."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[general]\n'
+            "[general]\n"
             'log_level = "WARNING"\n'
-            '\n'
-            '[ffmpeg]\n'
+            "\n"
+            "[ffmpeg]\n"
             'binary = "ffmpeg-toml"\n'
-            'default_timeout_s = 300\n'
-            '\n'
-            '[security]\n'
+            "default_timeout_s = 300\n"
+            "\n"
+            "[security]\n"
             'filesystem_allowlist = ["~/toml-data"]\n'
             'network_allowlist = ["toml.com"]\n',
             encoding="utf-8",

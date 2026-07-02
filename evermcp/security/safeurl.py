@@ -18,12 +18,14 @@ from urllib.parse import urlparse
 from evermcp.security.safepath import SecurityViolation
 
 # Hostnames that always resolve to loopback. Always rejected.
-_BLOCKED_HOSTNAMES = frozenset({
-    "localhost",
-    "localhost.localdomain",
-    "ip6-localhost",
-    "ip6-loopback",
-})
+_BLOCKED_HOSTNAMES = frozenset(
+    {
+        "localhost",
+        "localhost.localdomain",
+        "ip6-localhost",
+        "ip6-loopback",
+    }
+)
 
 
 class SafeURL:

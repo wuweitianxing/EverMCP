@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "evermcp"
-version = "0.2.0"
-description = "Cross-device tool orchestration platform for AI Agents via MCP"
+version = "0.3.0"
+description = "MCP Gateway + Capability Governance UI for AI Agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 keywords = ["mcp", "ai-agent", "tool-orchestration", "ffmpeg"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
@@ -29,6 +29,7 @@ dependencies = [
     "tomli>=2.0.0; python_version < '3.11'",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
+    "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ tts = [
 
 [project.scripts]
 evermcp = "evermcp.cli:main"
+evermcp-connect = "evermcp.connect.stdio_ws_bridge:main"
 
 [tool.setuptools.packages.find]
 include = ["evermcp*"]

@@ -1,4 +1,5 @@
 """Unit tests for the [gateway] section in evermcp.security.config."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,10 +8,10 @@ import pytest
 
 from evermcp.security.config import Config, GatewayConfig
 
-
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
+
 
 class TestGatewayDefaults:
     def test_default_host(self) -> None:
@@ -36,14 +37,12 @@ class TestGatewayDefaults:
 # TOML overrides
 # ---------------------------------------------------------------------------
 
+
 class TestGatewayTomlOverrides:
     def test_toml_overrides_defaults(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[gateway]\n'
-            'host = "0.0.0.0"\n'
-            'port = 9000\n'
-            'require_key = true\n',
+            '[gateway]\nhost = "0.0.0.0"\nport = 9000\nrequire_key = true\n',
             encoding="utf-8",
         )
 
@@ -53,14 +52,11 @@ class TestGatewayTomlOverrides:
         assert cfg.gateway.port == 9000
         assert cfg.gateway.require_key is True
 
-    def test_toml_partial_overrides_only_set_fields(
-        self, tmp_path: Path
-    ) -> None:
+    def test_toml_partial_overrides_only_set_fields(self, tmp_path: Path) -> None:
         """Only fields present in TOML are overridden; the rest keep defaults."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[gateway]\n'
-            'port = 9001\n',
+            "[gateway]\nport = 9001\n",
             encoding="utf-8",
         )
 
@@ -76,16 +72,13 @@ class TestGatewayTomlOverrides:
 # Environment variable overrides
 # ---------------------------------------------------------------------------
 
+
 class TestGatewayEnvOverrides:
-    def test_env_overrides_toml(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_overrides_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Env vars take precedence over TOML (same precedence as other fields)."""
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[gateway]\n'
-            'host = "0.0.0.0"\n'
-            'port = 9000\n',
+            '[gateway]\nhost = "0.0.0.0"\nport = 9000\n',
             encoding="utf-8",
         )
         monkeypatch.setenv("EVERMCP_GATEWAY_HOST", "10.0.0.1")
@@ -96,51 +89,39 @@ class TestGatewayEnvOverrides:
         assert cfg.gateway.host == "10.0.0.1"
         assert cfg.gateway.port == 12345
 
-    def test_env_require_key_true(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_require_key_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EVERMCP_GATEWAY_REQUIRE_KEY", "true")
         cfg = Config()
         cfg = Config._apply_env(cfg)
         assert cfg.gateway.require_key is True
 
-    def test_env_require_key_yes(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_require_key_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EVERMCP_GATEWAY_REQUIRE_KEY", "yes")
         cfg = Config()
         cfg = Config._apply_env(cfg)
         assert cfg.gateway.require_key is True
 
-    def test_env_require_key_on(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_require_key_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EVERMCP_GATEWAY_REQUIRE_KEY", "on")
         cfg = Config()
         cfg = Config._apply_env(cfg)
         assert cfg.gateway.require_key is True
 
-    def test_env_require_key_one_is_true(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_require_key_one_is_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """EVERMCP_GATEWAY_REQUIRE_KEY=1 must be coerced to True (per spec)."""
         monkeypatch.setenv("EVERMCP_GATEWAY_REQUIRE_KEY", "1")
         cfg = Config()
         cfg = Config._apply_env(cfg)
         assert cfg.gateway.require_key is True
 
-    def test_env_require_key_false(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_require_key_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """EVERMCP_GATEWAY_REQUIRE_KEY=false must yield False (per spec)."""
         monkeypatch.setenv("EVERMCP_GATEWAY_REQUIRE_KEY", "false")
         cfg = Config()
         cfg = Config._apply_env(cfg)
         assert cfg.gateway.require_key is False
 
-    def test_env_host_only(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_host_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EVERMCP_GATEWAY_HOST", "10.0.0.5")
         cfg = Config()
         cfg = Config._apply_env(cfg)
@@ -149,9 +130,7 @@ class TestGatewayEnvOverrides:
         assert cfg.gateway.port == 8787
         assert cfg.gateway.require_key is False
 
-    def test_env_port_only(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_env_port_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EVERMCP_GATEWAY_PORT", "5555")
         cfg = Config()
         cfg = Config._apply_env(cfg)
@@ -161,6 +140,7 @@ class TestGatewayEnvOverrides:
 # ---------------------------------------------------------------------------
 # Repr / round-trip
 # ---------------------------------------------------------------------------
+
 
 class TestGatewayRepr:
     def test_gatewayconfig_repr_does_not_raise(self) -> None:

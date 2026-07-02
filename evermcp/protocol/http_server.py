@@ -28,6 +28,7 @@ Design notes
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -63,10 +64,8 @@ class _LifespanState:
         self._task = asyncio.create_task(_drive(), name="mcp-http-lifespan")
         try:
             await asyncio.wait_for(self._entered.wait(), timeout=10.0)
-        except asyncio.TimeoutError as exc:
-            raise RuntimeError(
-                "StreamableHTTPSessionManager.run() did not enter in time"
-            ) from exc
+        except TimeoutError as exc:
+            raise RuntimeError("StreamableHTTPSessionManager.run() did not enter in time") from exc
 
     async def shutdown(self) -> None:
         """Cancel the background task so ``manager.run()`` exits."""
@@ -74,10 +73,8 @@ class _LifespanState:
             return
         if not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
         self._task = None
         self._entered.clear()
 
@@ -202,8 +199,7 @@ class HTTPServer:
         )
         server = uvicorn.Server(config)
         logger.info(
-            "EverMCP HTTP transport listening on http://%s:%d/mcp "
-            "(stateless=%s, json_response=%s)",
+            "EverMCP HTTP transport listening on http://%s:%d/mcp (stateless=%s, json_response=%s)",
             self._host,
             self._port,
             self._stateless,

@@ -32,11 +32,10 @@ _DEFAULT_CONFIG_FILE = _DEFAULT_CONFIG_DIR / "config.toml"
 
 
 class GatewayConfig:
-    """Gateway transport settings (S0).
+    """Gateway transport settings (S0/S2).
 
-    The actual HTTP server reads these via Config.gateway; only `host`/`port`
-    are consulted in S0. `require_key` and `db_url` are reserved for S2 (auth)
-    and stored as inert metadata until then.
+    The HTTP server reads `host`/`port`; the WS layer and Coordinator read
+    `require_key` and `remote_call_timeout_s` in S2.
     """
 
     def __init__(
@@ -45,17 +44,19 @@ class GatewayConfig:
         port: int = 8787,
         require_key: bool = False,
         db_url: str = "sqlite:///~/.evermcp/evermcp.db",
+        remote_call_timeout_s: float = 60.0,
     ) -> None:
         self.host = host
         self.port = int(port)
-        # Reserved for S2 — S0 ignores these values.
         self.require_key = bool(require_key)
         self.db_url = db_url
+        self.remote_call_timeout_s = float(remote_call_timeout_s)
 
     def __repr__(self) -> str:
         return (
             f"GatewayConfig(host={self.host!r}, port={self.port}, "
-            f"require_key={self.require_key}, db_url={self.db_url!r})"
+            f"require_key={self.require_key}, db_url={self.db_url!r}, "
+            f"remote_call_timeout_s={self.remote_call_timeout_s})"
         )
 
 
@@ -81,6 +82,7 @@ class Config:
         network_allowlist: list[str] | None = None,
         denied_paths: list[Path | str] | None = None,
         gateway: GatewayConfig | None = None,
+        remote_call_timeout_s: float = 60.0,
     ) -> None:
         self.log_level = log_level.upper()
         self.log_file = _resolve_path(log_file) if log_file else _DEFAULT_CONFIG_DIR / "evermcp.log"
@@ -89,7 +91,9 @@ class Config:
         self.filesystem_allowlist = [_resolve_path(p) for p in (filesystem_allowlist or [])]
         self.network_allowlist = network_allowlist or []
         self.denied_paths = [_resolve_path(p) for p in (denied_paths or [])]
-        self.gateway = gateway or GatewayConfig()
+        self.gateway = gateway or GatewayConfig(remote_call_timeout_s=remote_call_timeout_s)
+        # Convenience alias for the Coordinator (reads from config directly).
+        self.remote_call_timeout_s = self.gateway.remote_call_timeout_s
 
     # ------------------------------------------------------------------
     # Load: defaults → TOML → env vars
@@ -139,9 +143,7 @@ class Config:
         if "default_timeout_s" in ffmpeg:
             cfg.ffmpeg_timeout_s = int(ffmpeg["default_timeout_s"])
         if "filesystem_allowlist" in security:
-            cfg.filesystem_allowlist = [
-                _resolve_path(p) for p in security["filesystem_allowlist"]
-            ]
+            cfg.filesystem_allowlist = [_resolve_path(p) for p in security["filesystem_allowlist"]]
         if "network_allowlist" in security:
             cfg.network_allowlist = list(security["network_allowlist"])
         if "denied_paths" in security:
@@ -157,6 +159,9 @@ class Config:
                 cfg.gateway.require_key = bool(gateway["require_key"])
             if "db_url" in gateway:
                 cfg.gateway.db_url = str(gateway["db_url"])
+            if "remote_call_timeout_s" in gateway:
+                cfg.gateway.remote_call_timeout_s = float(gateway["remote_call_timeout_s"])
+            cfg.remote_call_timeout_s = cfg.gateway.remote_call_timeout_s
 
         return cfg
 
@@ -177,9 +182,7 @@ class Config:
 
         val = os.environ.get("EVERMCP_FS_ALLOWLIST")
         if val:
-            cfg.filesystem_allowlist = [
-                _resolve_path(p) for p in val.split(",") if p.strip()
-            ]
+            cfg.filesystem_allowlist = [_resolve_path(p) for p in val.split(",") if p.strip()]
 
         val = os.environ.get("EVERMCP_NET_ALLOWLIST")
         if val:
@@ -198,6 +201,10 @@ class Config:
         val = os.environ.get("EVERMCP_GATEWAY_DB_URL")
         if val:
             cfg.gateway.db_url = val
+        val = os.environ.get("EVERMCP_REMOTE_CALL_TIMEOUT_S")
+        if val:
+            cfg.gateway.remote_call_timeout_s = float(val)
+            cfg.remote_call_timeout_s = cfg.gateway.remote_call_timeout_s
 
         return cfg
 
@@ -221,6 +228,7 @@ class Config:
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
 
 def _resolve_path(p: Path | str) -> Path:
     """Expand ~ and resolve to absolute path."""

@@ -19,9 +19,7 @@ class _ISOFormatter(logging.Formatter):
     """JSON-like formatter for stderr: ISO 8601 timestamp."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime(
-            "%Y-%m-%dT%H:%M:%S"
-        )
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S")
         return f'{{"ts": "{ts}Z", "level": "{record.levelname}", "msg": "{record.getMessage()}"}}'
 
 
@@ -29,9 +27,7 @@ class _HumanFormatter(logging.Formatter):
     """Human-readable formatter for log file."""
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
         return f"{ts} {record.levelname:<8s} {record.getMessage()}"
 
 
@@ -115,8 +111,8 @@ def main(ctx: click.Context, verbose: bool, config_file: str | None) -> None:
 )
 @click.option(
     "--init-db/--no-init-db",
-    default=False,
-    help="Initialize the SQLite gateway database on startup (S0 default: off; S1 will turn on).",
+    default=True,
+    help="Initialize the SQLite gateway database on startup (default: on).",
 )
 @click.option(
     "--ui/--no-ui",
@@ -139,9 +135,7 @@ def serve(  # noqa: C901 — small command, complexity is acceptable
 
     # At least one transport must be enabled — otherwise nothing would run.
     if not stdio and not http:
-        raise click.UsageError(
-            "At least one of --stdio or --http must be enabled."
-        )
+        raise click.UsageError("At least one of --stdio or --http must be enabled.")
 
     # UI requires HTTP
     if ui and not http:
@@ -173,9 +167,9 @@ def serve(  # noqa: C901 — small command, complexity is acceptable
 
     # Optional DB init (S0: off by default; S1+ will turn on).
     if init_db:
-        from evermcp.storage import init_db
+        from evermcp.storage import init_db as _init_db
 
-        init_db()
+        _init_db()
         click.echo("[evermcp] gateway database initialized", err=True)
 
     # Build ONE MCPServer and share it across transports. This is the
@@ -200,13 +194,14 @@ def serve(  # noqa: C901 — small command, complexity is acceptable
 
     async def _ui() -> None:
         """Start the FastAPI web UI server (loopback only, token-protected)."""
-        from evermcp.web.app import create_app
         import uvicorn
+
+        from evermcp.web.app import create_app
 
         web_app = create_app(coordinator, require_token=True)
         config = uvicorn.Config(
             web_app,
-            host="127.0.0.1",          # forced loopback — never follow --host
+            host="127.0.0.1",  # forced loopback — never follow --host
             port=bind_port + 1,
             log_level="info",
         )
@@ -266,13 +261,60 @@ def list_tools(ctx: click.Context, tools_dir: str | None) -> None:  # noqa: ARG0
     descriptors = registry.scan()
 
     if not descriptors:
-        click.echo(
-            f"No tools found in {resolved_tools_dir or 'default location'}."
-        )
+        click.echo(f"No tools found in {resolved_tools_dir or 'default location'}.")
         return
 
     for d in descriptors:
         click.echo(f"  {d['name']:30s}  {d['description']}")
+
+
+@main.command("connect")
+@click.option(
+    "--gateway",
+    default="ws://127.0.0.1:8788/ws",
+    help="Gateway WebSocket URL (default: ws://127.0.0.1:8788/ws).",
+)
+@click.option(
+    "--token",
+    required=True,
+    help="API key for gateway authentication.",
+)
+@click.option(
+    "--cwd",
+    default=None,
+    help="Working directory for the local MCP server subprocess.",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Enable debug logging.",
+)
+@click.argument("server_command", nargs=-1, required=True)
+@click.pass_context
+def connect(
+    ctx: click.Context,
+    gateway: str,
+    token: str,
+    cwd: str | None,
+    verbose: bool,
+    server_command: tuple[str, ...],
+) -> None:
+    """Bridge a local stdio MCP server to the gateway."""
+    from evermcp.connect.stdio_ws_bridge import main as bridge_main
+
+    argv = ["--gateway", gateway, "--token", token]
+    if cwd:
+        argv.extend(["--cwd", cwd])
+    if verbose:
+        argv.append("--verbose")
+    # Allow users to type either `evermcp connect -- python server.py` or
+    # `evermcp connect python server.py`.
+    command = list(server_command)
+    if command and command[0] == "--":
+        command = command[1:]
+    argv.extend(command)
+    raise SystemExit(bridge_main(argv))
 
 
 def _resolve_tools_dir(cli_value: str | None) -> Path | None:
